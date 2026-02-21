@@ -27,7 +27,7 @@ export default async function handler(req, res) {
             }
           },
           {
-            text: "Extract the following information from this receipt/invoice: product name, unit price, quantity, total amount, and sale date. If the year is missing from the date, default to 2026. Format date as YYYY-MM-DD. If the image is blurry, unreadable, or missing key information, provide an error message explaining what is missing."
+            text: "你是一个专业的财务会计 AI。请识别这张手写发票图片。发票特征：抬头：WANG YUWU INTERNATIONAL SPC。语言：阿拉伯语、英语、手写体。提取要求：Date: 准确识别手写日期（如 2026-02-20）。Items: 提取 DESCRIPTION 栏的手写内容（例如 'Ly-74-2'）作为 productName。Math Check: 提取 QTY (数量) 作为 quantity, RATE (单价) 作为 unitPrice, AMOUNT (总额) 作为 totalAmount。验证公式：QTY * RATE = AMOUNT。如果图片模糊或信息缺失，请在 error 字段说明。Output: 请直接返回 JSON 格式，不要有任何多余的文字描述。"
           }
         ]
       },
