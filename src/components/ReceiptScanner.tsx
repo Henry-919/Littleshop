@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { useStore } from '../hooks/useStore';
 import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X } from 'lucide-react';
-import { GoogleGenAI, Type } from '@google/genai';
 
 export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }) {
   const { products, addSale } = store;
@@ -33,94 +32,63 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
     setLoading(true);
     setError(null);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
-      
       const base64Data = image.split(',')[1];
       const mimeType = image.split(';')[0].split(':')[1];
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                data: base64Data,
-                mimeType: mimeType
-              }
-            },
-            {
-              text: "Extract the following information from this receipt/invoice: product name, unit price, quantity, total amount, and sale date. If the year is missing from the date, default to 2026. Format date as YYYY-MM-DD. If the image is blurry, unreadable, or missing key information, provide an error message explaining what is missing."
-            }
-          ]
+      // Call the new Vercel Serverless Function
+      const response = await fetch('/api/ocr', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              items: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    productName: { type: Type.STRING },
-                    unitPrice: { type: Type.NUMBER },
-                    quantity: { type: Type.NUMBER },
-                    totalAmount: { type: Type.NUMBER }
-                  },
-                  required: ["productName", "unitPrice", "quantity", "totalAmount"]
-                }
-              },
-              saleDate: { type: Type.STRING, description: "Date of the sale in YYYY-MM-DD format" },
-              error: { type: Type.STRING, description: "Error message if information is missing or blurry" }
-            }
-          }
-        }
+        body: JSON.stringify({ base64Data, mimeType }),
       });
 
-      const jsonStr = response.text;
-      if (jsonStr) {
-        const parsed = JSON.parse(jsonStr);
-        if (parsed.error) {
-          setError(parsed.error);
-        } else {
-          const matchedItems = parsed.items?.map((item: any) => {
-            // Rule 1: Math check
-            const calculatedTotal = item.unitPrice * item.quantity;
-            const hasMathDiscrepancy = Math.abs(calculatedTotal - item.totalAmount) > 0.01;
-            const finalUnitPrice = hasMathDiscrepancy ? (item.totalAmount / item.quantity) : item.unitPrice;
+      const parsed = await response.json();
 
-            // Rule 2: Match product or CREATE_NEW
-            const matchedProduct = products.find(p => 
-              p.name.toLowerCase().includes(item.productName.toLowerCase()) || 
-              item.productName.toLowerCase().includes(p.name.toLowerCase())
-            );
+      if (!response.ok) {
+        setError(parsed.error || "Failed to process image");
+        setLoading(false);
+        return;
+      }
 
-            return {
-              productName: item.productName,
-              unitPrice: finalUnitPrice,
-              quantity: item.quantity,
-              totalAmount: item.totalAmount,
-              hasMathDiscrepancy,
-              matchedProductId: matchedProduct ? matchedProduct.id : 'CREATE_NEW'
-            };
-          }) || [];
-          
-          // Rule 3: Date fallback
-          let finalDate = parsed.saleDate;
-          if (finalDate && finalDate.length === 5) { // e.g. 05-12
-            finalDate = `2026-${finalDate}`;
-          }
-          
-          if (navigator.vibrate) navigator.vibrate(100);
-          
-          setResult({
-            items: matchedItems,
-            saleDate: finalDate
-          });
-        }
+      if (parsed.error) {
+        setError(parsed.error);
       } else {
-        setError("Failed to parse the receipt.");
+        const matchedItems = parsed.items?.map((item: any) => {
+          // Rule 1: Math check
+          const calculatedTotal = item.unitPrice * item.quantity;
+          const hasMathDiscrepancy = Math.abs(calculatedTotal - item.totalAmount) > 0.01;
+          const finalUnitPrice = hasMathDiscrepancy ? (item.totalAmount / item.quantity) : item.unitPrice;
+
+          // Rule 2: Match product or CREATE_NEW
+          const matchedProduct = products.find(p => 
+            p.name.toLowerCase().includes(item.productName.toLowerCase()) || 
+            item.productName.toLowerCase().includes(p.name.toLowerCase())
+          );
+
+          return {
+            productName: item.productName,
+            unitPrice: finalUnitPrice,
+            quantity: item.quantity,
+            totalAmount: item.totalAmount,
+            hasMathDiscrepancy,
+            matchedProductId: matchedProduct ? matchedProduct.id : 'CREATE_NEW'
+          };
+        }) || [];
+        
+        // Rule 3: Date fallback
+        let finalDate = parsed.saleDate;
+        if (finalDate && finalDate.length === 5) { // e.g. 05-12
+          finalDate = `2026-${finalDate}`;
+        }
+        
+        if (navigator.vibrate) navigator.vibrate(100);
+        
+        setResult({
+          items: matchedItems,
+          saleDate: finalDate
+        });
       }
     } catch (err) {
       console.error(err);
