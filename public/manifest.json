@@ -1,0 +1,20 @@
+{
+  "name": "小店管家",
+  "short_name": "小店管家",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "https://picsum.photos/192/192?random=1",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/512/512?random=2",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
