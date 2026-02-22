@@ -55,7 +55,7 @@ export default function App() {
             }`}
           >
             <Package className="w-5 h-5" />
-            <span className="font-medium">Inventory</span>
+            <span className="font-medium">Inventory (库存)</span>
           </button>
           <button
             onClick={() => setActiveTab('categories')}
@@ -64,7 +64,7 @@ export default function App() {
             }`}
           >
             <Tags className="w-5 h-5" />
-            <span className="font-medium">Categories</span>
+            <span className="font-medium">Categories (类目)</span>
           </button>
           <button
             onClick={() => setActiveTab('history')}

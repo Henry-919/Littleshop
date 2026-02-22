@@ -3,7 +3,7 @@ import { useStore } from '../hooks/useStore';
 import { Tags, Plus, Trash2 } from 'lucide-react';
 
 export function Categories({ store }: { store: ReturnType<typeof useStore> }) {
-  const { categories, addCategory, deleteCategory } = store;
+  const { categories, addCategory, deleteCategory, loading } = store;
   const [newCategoryName, setNewCategoryName] = useState('');
 
   const handleAdd = async (e: React.FormEvent) => {
@@ -20,6 +20,10 @@ export function Categories({ store }: { store: ReturnType<typeof useStore> }) {
       await deleteCategory(id);
     }
   };
+
+  if (loading) {
+    return <div className="p-8 text-center text-slate-500">Loading categories from Supabase...</div>;
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

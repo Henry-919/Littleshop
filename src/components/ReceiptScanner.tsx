@@ -147,7 +147,7 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
     setResult({ ...result, items: newItems });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!result) return;
     
     const itemsToProcess = result.items
@@ -167,7 +167,7 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
 
     const dateToUse = result.saleDate ? new Date(result.saleDate).toISOString() : new Date().toISOString();
     
-    const failedItems = store.processReceiptSales(itemsToProcess, salesperson, dateToUse);
+    const failedItems = await store.processReceiptSales(itemsToProcess, salesperson, dateToUse);
     
     if (failedItems.length === 0) {
       if (navigator.vibrate) navigator.vibrate(100);
