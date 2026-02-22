@@ -2,6 +2,39 @@ import React, { useState, useRef } from 'react';
 import { useStore } from '../hooks/useStore';
 import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X } from 'lucide-react';
 
+const levenshtein = (a: string, b: string): number => {
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (let j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+};
+
+const getSimilarity = (a: string, b: string): number => {
+  const aLower = a.toLowerCase();
+  const bLower = b.toLowerCase();
+  if (aLower === bLower) return 1;
+  if (aLower.includes(bLower) || bLower.includes(aLower)) return 0.8;
+  const distance = levenshtein(aLower, bLower);
+  const maxLength = Math.max(aLower.length, bLower.length);
+  return maxLength === 0 ? 1 : 1 - distance / maxLength;
+};
+
 export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }) {
   const { products, addSale } = store;
   const [images, setImages] = useState<string[]>([]);
@@ -106,10 +139,18 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
             const finalUnitPrice = hasMathDiscrepancy ? (item.totalAmount / item.quantity) : item.unitPrice;
 
             // Rule 2: Match product or CREATE_NEW
-            const matchedProduct = products.find(p => 
-              p.name.toLowerCase().includes(item.productName.toLowerCase()) || 
-              item.productName.toLowerCase().includes(p.name.toLowerCase())
-            );
+            let bestMatch = null;
+            let highestSimilarity = 0;
+
+            for (const p of products) {
+              const sim = getSimilarity(p.name, item.productName);
+              if (sim > highestSimilarity) {
+                highestSimilarity = sim;
+                bestMatch = p;
+              }
+            }
+
+            const matchedProductId = (highestSimilarity > 0.4 && bestMatch) ? bestMatch.id : 'CREATE_NEW';
 
             return {
               productName: item.productName,
@@ -117,7 +158,7 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
               quantity: item.quantity,
               totalAmount: item.totalAmount,
               hasMathDiscrepancy,
-              matchedProductId: matchedProduct ? matchedProduct.id : 'CREATE_NEW'
+              matchedProductId
             };
           }) || [];
           
