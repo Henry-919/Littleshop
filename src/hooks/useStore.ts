@@ -1,87 +1,309 @@
-import { createClient } from '@supabase/supabase-js';
 import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
-// 1. 初始化 Supabase 客户端
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export interface Category {
+  id: string;
+  name: string;
+}
 
-export const useStore = () => {
-  const [products, setProducts] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [sales, setSales] = useState([]);
+export interface Product {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+  category_id?: string;
+  cost_price?: number;
+  is_deleted?: boolean;
+}
+
+export interface Sale {
+  id: string;
+  productId: string;
+  quantity: number;
+  totalAmount: number;
+  salesperson: string;
+  date: string;
+}
+
+export function useStore() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // --- 初始化加载数据 ---
   const fetchData = async () => {
-    setLoading(true);
-    const { data: p } = await supabase.from('products').select('*').order('name');
-    const { data: c } = await supabase.from('categories').select('*').order('name');
-    const { data: s } = await supabase.from('sales').select('*, products(name)').order('created_at', { ascending: false });
-    
-    setProducts(p || []);
-    setCategories(c || []);
-    setSales(s || []);
-    setLoading(false);
+    if (!supabase) {
+      console.warn('Supabase is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { data: catData } = await supabase.from('categories').select('*');
+      if (catData) setCategories(catData);
+
+      const { data: prodData } = await supabase.from('products').select('*');
+      if (prodData) setProducts(prodData);
+
+      const { data: saleData } = await supabase.from('sales').select('*');
+      if (saleData) setSales(saleData);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { fetchData(); }, []);
-
-  // --- 商品管理 ---
-  const addProduct = async (product) => {
-    const { error } = await supabase.from('products').upsert(product);
-    if (!error) fetchData();
-    return error;
-  };
-
-  const deleteProduct = async (id) => {
-    const { error } = await supabase.from('products').delete().eq('id', id);
-    if (!error) fetchData();
-    return error;
-  };
-
-  // --- 销售记录与库存回滚 ---
-  const addSale = async (productId, quantity, total) => {
-    // 1. 插入销售记录
-    const { error: saleError } = await supabase.from('sales').insert([
-      { product_id: productId, quantity, total_amount: total }
-    ]);
-    if (saleError) return saleError;
-
-    // 2. 更新库存 (减少)
-    const product = products.find(p => p.id === productId);
-    const { error: stockError } = await supabase.from('products')
-      .update({ stock: (product.stock || 0) - quantity })
-      .eq('id', productId);
-    
+  useEffect(() => {
     fetchData();
-    return stockError;
+  }, []);
+
+  const addCategory = async (name: string) => {
+    if (!supabase) return false;
+    const { data, error } = await supabase.from('categories').insert([{ name }]).select().single();
+    if (error) {
+      console.error('Error adding category:', error);
+      return false;
+    }
+    setCategories(prev => [...prev, data]);
+    return true;
   };
 
-  const deleteSale = async (saleId, productId, quantity) => {
-    // 1. 删除销售记录
-    const { error: delError } = await supabase.from('sales').delete().eq('id', saleId);
-    if (delError) return delError;
+  const deleteCategory = async (id: string) => {
+    if (!supabase) return false;
+    const hasProducts = products.some(p => p.category_id === id && !p.is_deleted);
+    if (hasProducts) {
+      alert('Cannot delete category: There are active products associated with it.');
+      return false;
+    }
 
-    // 2. 回滚库存 (增加)
+    const { error } = await supabase.from('categories').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting category:', error);
+      return false;
+    }
+    setCategories(prev => prev.filter(c => c.id !== id));
+    return true;
+  };
+
+  const addProduct = async (product: Omit<Product, 'id' | 'is_deleted'>) => {
+    if (!supabase) return false;
+    const { data, error } = await supabase.from('products').insert([product]).select().single();
+    if (error) {
+      console.error('Error adding product:', error);
+      return false;
+    }
+    setProducts(prev => [...prev, data]);
+    return true;
+  };
+
+  const deleteProduct = async (id: string) => {
+    if (!supabase) return false;
+    // Soft delete
+    const { error } = await supabase.from('products').update({ is_deleted: true }).eq('id', id);
+    if (error) {
+      console.error('Error deleting product:', error);
+      return false;
+    }
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, is_deleted: true } : p));
+    return true;
+  };
+
+  const restoreProduct = async (id: string) => {
+    if (!supabase) return false;
+    // Restore soft-deleted product
+    const { error } = await supabase.from('products').update({ is_deleted: false }).eq('id', id);
+    if (error) {
+      console.error('Error restoring product:', error);
+      return false;
+    }
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, is_deleted: false } : p));
+    return true;
+  };
+
+  const addSale = async (productId: string, quantity: number, salesperson: string, date?: string) => {
+    if (!supabase) return false;
     const product = products.find(p => p.id === productId);
-    const { error: stockError } = await supabase.from('products')
-      .update({ stock: (product.stock || 0) + quantity })
-      .eq('id', productId);
+    if (!product || product.stock < quantity) return false;
 
-    fetchData();
-    return stockError;
+    const newStock = product.stock - quantity;
+    const totalAmount = product.price * quantity;
+    const saleDate = date || new Date().toISOString();
+
+    // Update stock
+    const { error: stockError } = await supabase.from('products').update({ stock: newStock }).eq('id', productId);
+    if (stockError) return false;
+
+    // Insert sale
+    const { data: saleData, error: saleError } = await supabase.from('sales').insert([{
+      product_id: productId, // assuming column is product_id in DB
+      quantity,
+      total_amount: totalAmount, // assuming column is total_amount in DB
+      salesperson,
+      date: saleDate
+    }]).select().single();
+
+    if (saleError) return false;
+
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, stock: newStock } : p));
+    
+    // Map DB columns back to local state format
+    const newSale: Sale = {
+      id: saleData.id,
+      productId: saleData.product_id,
+      quantity: saleData.quantity,
+      totalAmount: saleData.total_amount,
+      salesperson: saleData.salesperson,
+      date: saleData.date
+    };
+    setSales(prev => [newSale, ...prev]);
+    return true;
   };
 
-  return {
-    products,
+  const processReceiptSales = async (
+    items: { productId: string; productName: string; price: number; quantity: number; totalAmount: number }[],
+    salesperson: string,
+    date: string
+  ) => {
+    if (!supabase) return items.map(i => i.productName);
+    
+    let failedItems: string[] = [];
+    
+    for (const item of items) {
+      let pid = item.productId;
+      
+      if (pid === 'CREATE_NEW') {
+        const { data: newProd, error: prodError } = await supabase.from('products').insert([{
+          name: `[新商品待分类] ${item.productName}`,
+          price: item.price,
+          cost_price: 0,
+          stock: 0
+        }]).select().single();
+        
+        if (prodError || !newProd) {
+          failedItems.push(item.productName);
+          continue;
+        }
+        pid = newProd.id;
+        setProducts(prev => [...prev, newProd]);
+      }
+
+      const product = products.find(p => p.id === pid) || (pid !== 'CREATE_NEW' ? null : undefined);
+      // If we just created it, it might not be in the local state array yet, but we know its stock is 0.
+      // Wait, if we just created it, stock is 0, so it will fail the stock check unless it's a new product.
+      // Actually, let's just allow negative stock for newly created items from receipts, or just fail them.
+      // The previous logic allowed negative stock for [新商品待分类].
+      
+      const isNew = product?.name.startsWith('[新商品待分类]') || pid === 'CREATE_NEW';
+      if (!isNew && product && product.stock < item.quantity) {
+        failedItems.push(item.productName);
+        continue;
+      }
+
+      const currentStock = product ? product.stock : 0;
+      const newStock = currentStock - item.quantity;
+
+      await supabase.from('products').update({ stock: newStock }).eq('id', pid);
+      
+      const { data: saleData } = await supabase.from('sales').insert([{
+        product_id: pid,
+        quantity: item.quantity,
+        total_amount: item.totalAmount,
+        salesperson,
+        date
+      }]).select().single();
+
+      if (saleData) {
+        setProducts(prev => prev.map(p => p.id === pid ? { ...p, stock: newStock } : p));
+        setSales(prev => [{
+          id: saleData.id,
+          productId: saleData.product_id,
+          quantity: saleData.quantity,
+          totalAmount: saleData.total_amount,
+          salesperson: saleData.salesperson,
+          date: saleData.date
+        }, ...prev]);
+      }
+    }
+
+    return failedItems;
+  };
+
+  const processExcelImport = async (rows: any[], onProgress: (msg: string) => void) => {
+    if (!supabase) throw new Error("Supabase not connected");
+    
+    let currentCats = [...categories];
+    let currentProds = [...products];
+    let successCount = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const name = row['商品名称'];
+      const catName = row['类目'];
+      const price = parseFloat(row['销售价'] || '0');
+      const cost = parseFloat(row['成本价'] || '0');
+      const stock = parseInt(row['库存数量'] || '0', 10);
+
+      if (!name) continue;
+      onProgress(`Processing ${i + 1}/${rows.length}: ${name}`);
+
+      // Handle Category
+      let catId = null;
+      if (catName) {
+        let cat = currentCats.find(c => c.name === catName);
+        if (!cat) {
+          const { data, error } = await supabase.from('categories').insert([{ name: catName }]).select().single();
+          if (data && !error) {
+            cat = data;
+            currentCats.push(cat);
+          }
+        }
+        catId = cat?.id || null;
+      }
+
+      // Handle Product
+      let prod = currentProds.find(p => p.name === name);
+      if (prod) {
+        // Upsert: Add stock, update prices
+        const newStock = prod.stock + stock;
+        const { data, error } = await supabase.from('products')
+          .update({ stock: newStock, price, cost_price: cost, category_id: catId, is_deleted: false })
+          .eq('id', prod.id).select().single();
+          
+        if (data && !error) {
+          currentProds = currentProds.map(p => p.id === prod.id ? data : p);
+          successCount++;
+        }
+      } else {
+        // Insert new
+        const { data, error } = await supabase.from('products')
+          .insert([{ name, price, cost_price: cost, stock, category_id: catId }])
+          .select().single();
+          
+        if (data && !error) {
+          currentProds.push(data);
+          successCount++;
+        }
+      }
+    }
+    
+    setCategories(currentCats);
+    setProducts(currentProds);
+    return successCount;
+  };
+
+  return { 
+    products, 
+    sales, 
     categories,
-    sales,
     loading,
+    addSale, 
+    processReceiptSales,
+    addCategory,
+    deleteCategory,
     addProduct,
     deleteProduct,
-    addSale,
-    deleteSale,
-    fetchData
+    restoreProduct,
+    processExcelImport
   };
-};
+}
