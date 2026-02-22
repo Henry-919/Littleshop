@@ -4,7 +4,7 @@ import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X } from 'luci
 
 export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }) {
   const { products, addSale } = store;
-  const [image, setImage] = useState<string | null>(null);
+  const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     items: { productName: string; unitPrice: number; quantity: number; totalAmount: number; matchedProductId?: string; hasMathDiscrepancy?: boolean }[];
@@ -52,17 +52,17 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length > 0) {
       try {
         setLoading(true);
-        const compressedDataUrl = await compressImage(file);
-        setImage(compressedDataUrl);
+        const compressedImages = await Promise.all(files.map(file => compressImage(file)));
+        setImages(prev => [...prev, ...compressedImages]);
         setResult(null);
         setError(null);
       } catch (err) {
         console.error('Image compression error:', err);
-        setError('Failed to process image file.');
+        setError('Failed to process image files.');
       } finally {
         setLoading(false);
       }
@@ -70,71 +70,79 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
   };
 
   const processImage = async () => {
-    if (!image) return;
+    if (images.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      const base64Data = image.split(',')[1];
-      const mimeType = image.split(';')[0].split(':')[1];
+      let allMatchedItems: any[] = [];
+      let finalDate = '';
 
-      // Call the new Vercel Serverless Function
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ base64Data, mimeType }),
-      });
+      for (const image of images) {
+        const base64Data = image.split(',')[1];
+        const mimeType = image.split(';')[0].split(':')[1];
 
-      const parsed = await response.json();
-
-      if (!response.ok) {
-        setError(parsed.error || "Failed to process image");
-        setLoading(false);
-        return;
-      }
-
-      if (parsed.error) {
-        setError(parsed.error);
-      } else {
-        const matchedItems = parsed.items?.map((item: any) => {
-          // Rule 1: Math check
-          const calculatedTotal = item.unitPrice * item.quantity;
-          const hasMathDiscrepancy = Math.abs(calculatedTotal - item.totalAmount) > 0.01;
-          const finalUnitPrice = hasMathDiscrepancy ? (item.totalAmount / item.quantity) : item.unitPrice;
-
-          // Rule 2: Match product or CREATE_NEW
-          const matchedProduct = products.find(p => 
-            p.name.toLowerCase().includes(item.productName.toLowerCase()) || 
-            item.productName.toLowerCase().includes(p.name.toLowerCase())
-          );
-
-          return {
-            productName: item.productName,
-            unitPrice: finalUnitPrice,
-            quantity: item.quantity,
-            totalAmount: item.totalAmount,
-            hasMathDiscrepancy,
-            matchedProductId: matchedProduct ? matchedProduct.id : 'CREATE_NEW'
-          };
-        }) || [];
-        
-        // Rule 3: Date fallback
-        let finalDate = parsed.saleDate;
-        if (finalDate && finalDate.length === 5) { // e.g. 05-12
-          finalDate = `2026-${finalDate}`;
-        }
-        
-        if (navigator.vibrate) navigator.vibrate(100);
-        
-        setResult({
-          items: matchedItems,
-          saleDate: finalDate
+        // Call the new Vercel Serverless Function
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ base64Data, mimeType }),
         });
+
+        const parsed = await response.json();
+
+        if (!response.ok) {
+          throw new Error(parsed.error || "Failed to process image");
+        }
+
+        if (parsed.error) {
+          throw new Error(parsed.error);
+        } else {
+          const matchedItems = parsed.items?.map((item: any) => {
+            // Rule 1: Math check
+            const calculatedTotal = item.unitPrice * item.quantity;
+            const hasMathDiscrepancy = Math.abs(calculatedTotal - item.totalAmount) > 0.01;
+            const finalUnitPrice = hasMathDiscrepancy ? (item.totalAmount / item.quantity) : item.unitPrice;
+
+            // Rule 2: Match product or CREATE_NEW
+            const matchedProduct = products.find(p => 
+              p.name.toLowerCase().includes(item.productName.toLowerCase()) || 
+              item.productName.toLowerCase().includes(p.name.toLowerCase())
+            );
+
+            return {
+              productName: item.productName,
+              unitPrice: finalUnitPrice,
+              quantity: item.quantity,
+              totalAmount: item.totalAmount,
+              hasMathDiscrepancy,
+              matchedProductId: matchedProduct ? matchedProduct.id : 'CREATE_NEW'
+            };
+          }) || [];
+          
+          allMatchedItems = [...allMatchedItems, ...matchedItems];
+          
+          // Rule 3: Date fallback
+          if (!finalDate && parsed.saleDate) {
+            let d = parsed.saleDate;
+            if (d.length === 5) { // e.g. 05-12
+              d = `2026-${d}`;
+            }
+            finalDate = d;
+          }
+        }
       }
+      
+      if (navigator.vibrate) navigator.vibrate(100);
+      
+      setResult({
+        items: allMatchedItems,
+        saleDate: finalDate
+      });
     } catch (err: any) {
       console.error('Detailed OCR Error:', err);
-      setError(err.message || "An error occurred while processing the image. Please check the console for details.");
+      setError(err.message || "An error occurred while processing the images. Please check the console for details.");
     } finally {
       setLoading(false);
     }
@@ -172,7 +180,7 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
     if (failedItems.length === 0) {
       if (navigator.vibrate) navigator.vibrate(100);
       alert('All items recorded successfully!');
-      setImage(null);
+      setImages([]);
       setResult(null);
     } else {
       alert(`Failed to record some items due to insufficient stock:\n${failedItems.join('\n')}`);
@@ -183,54 +191,73 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100">
         <h2 className="text-2xl font-bold text-slate-900">Scan Receipt</h2>
-        <p className="text-slate-500 mt-1">Upload a photo of a receipt to automatically extract and record sales.</p>
+        <p className="text-slate-500 mt-1">Upload photos of receipts to automatically extract and record sales.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Upload Section */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center justify-center min-h-[400px]">
-          {image ? (
-            <div className="w-full space-y-4">
-              <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex items-center justify-center h-64">
-                <img src={image} alt="Receipt" className="max-h-full object-contain" />
-                <button 
-                  onClick={() => { setImage(null); setResult(null); setError(null); }}
-                  className="absolute top-2 right-2 p-1.5 bg-white/80 hover:bg-white rounded-full text-slate-700 shadow-sm"
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-[400px]">
+          {images.length > 0 ? (
+            <div className="w-full space-y-4 flex-1 flex flex-col">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 overflow-y-auto max-h-[300px] p-2">
+                {images.map((img, idx) => (
+                  <div key={idx} className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 aspect-square flex items-center justify-center">
+                    <img src={img} alt={`Receipt ${idx + 1}`} className="max-h-full object-cover" />
+                    <button 
+                      onClick={() => {
+                        const newImages = [...images];
+                        newImages.splice(idx, 1);
+                        setImages(newImages);
+                        if (newImages.length === 0) setResult(null);
+                      }}
+                      className="absolute top-1 right-1 p-1 bg-white/80 hover:bg-white rounded-full text-slate-700 shadow-sm"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                <div 
+                  className="relative rounded-xl overflow-hidden border-2 border-dashed border-slate-300 bg-slate-50 aspect-square flex flex-col items-center justify-center cursor-pointer hover:bg-slate-100 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
                 >
-                  <X className="w-5 h-5" />
+                  <Upload className="w-6 h-6 text-slate-400 mb-2" />
+                  <span className="text-xs text-slate-500 font-medium">Add More</span>
+                </div>
+              </div>
+              <div className="mt-auto pt-4 border-t border-slate-100">
+                <button
+                  onClick={processImage}
+                  disabled={loading}
+                  className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 text-white rounded-xl font-bold transition-colors shadow-sm flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
+                  {loading ? 'Analyzing Images...' : `Extract Data (${images.length} images)`}
                 </button>
               </div>
-              <button
-                onClick={processImage}
-                disabled={loading}
-                className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 text-white rounded-xl font-bold transition-colors shadow-sm flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
-                {loading ? 'Analyzing Image...' : 'Extract Data'}
-              </button>
             </div>
           ) : (
             <div 
-              className="w-full h-full border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center p-8 text-center hover:bg-slate-50 transition-colors cursor-pointer"
+              className="w-full h-full flex-1 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center p-8 text-center hover:bg-slate-50 transition-colors cursor-pointer"
               onClick={() => fileInputRef.current?.click()}
             >
               <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4">
                 <Upload className="w-8 h-8" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-1">Upload Receipt Photo</h3>
-              <p className="text-sm text-slate-500 mb-6">Click or drag and drop an image here</p>
+              <h3 className="text-lg font-bold text-slate-900 mb-1">Upload Receipt Photos</h3>
+              <p className="text-sm text-slate-500 mb-6">Click or drag and drop images here. You can upload multiple receipts.</p>
               <button className="px-6 py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors">
-                Select File
+                Select Files
               </button>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleImageUpload} 
-                accept="image/*" 
-                className="hidden" 
-              />
             </div>
           )}
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleImageUpload} 
+            accept="image/*" 
+            multiple
+            className="hidden" 
+          />
         </div>
 
         {/* Results Section */}
@@ -254,7 +281,7 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
           {loading && (
             <div className="flex-1 flex flex-col items-center justify-center text-emerald-500">
               <Loader2 className="w-10 h-10 animate-spin mb-4" />
-              <p className="font-medium">Gemini is analyzing the receipt...</p>
+              <p className="font-medium">Gemini is analyzing the receipts...</p>
             </div>
           )}
 
