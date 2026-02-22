@@ -13,7 +13,6 @@ export interface Product {
   stock: number;
   category_id?: string;
   cost_price?: number;
-  is_deleted?: boolean;
 }
 
 export interface Sale {
@@ -78,7 +77,7 @@ export function useStore() {
       alert('Supabase is not configured.');
       return false;
     }
-    const hasProducts = products.some(p => p.category_id === id && !p.is_deleted);
+    const hasProducts = products.some(p => p.category_id === id);
     if (hasProducts) {
       alert('Cannot delete category: There are active products associated with it.');
       return false;
@@ -94,7 +93,7 @@ export function useStore() {
     return true;
   };
 
-  const addProduct = async (product: Omit<Product, 'id' | 'is_deleted'>) => {
+  const addProduct = async (product: Omit<Product, 'id'>) => {
     if (!supabase) {
       alert('Supabase is not configured.');
       return false;
@@ -114,30 +113,14 @@ export function useStore() {
       alert('Supabase is not configured.');
       return false;
     }
-    // Soft delete
-    const { error } = await supabase.from('products').update({ is_deleted: true }).eq('id', id);
+    // Hard delete
+    const { error } = await supabase.from('products').delete().eq('id', id);
     if (error) {
       console.error('Error deleting product:', error);
       alert(`Error deleting product: ${error.message}`);
       return false;
     }
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, is_deleted: true } : p));
-    return true;
-  };
-
-  const restoreProduct = async (id: string) => {
-    if (!supabase) {
-      alert('Supabase is not configured.');
-      return false;
-    }
-    // Restore soft-deleted product
-    const { error } = await supabase.from('products').update({ is_deleted: false }).eq('id', id);
-    if (error) {
-      console.error('Error restoring product:', error);
-      alert(`Error restoring product: ${error.message}`);
-      return false;
-    }
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, is_deleted: false } : p));
+    setProducts(prev => prev.filter(p => p.id !== id));
     return true;
   };
 
@@ -209,10 +192,6 @@ export function useStore() {
       }
 
       const product = products.find(p => p.id === pid) || (pid !== 'CREATE_NEW' ? null : undefined);
-      // If we just created it, it might not be in the local state array yet, but we know its stock is 0.
-      // Wait, if we just created it, stock is 0, so it will fail the stock check unless it's a new product.
-      // Actually, let's just allow negative stock for newly created items from receipts, or just fail them.
-      // The previous logic allowed negative stock for [新商品待分类].
       
       const isNew = product?.name.startsWith('[新商品待分类]') || pid === 'CREATE_NEW';
       if (!isNew && product && product.stock < item.quantity) {
@@ -287,7 +266,7 @@ export function useStore() {
         // Upsert: Add stock, update prices
         const newStock = prod.stock + stock;
         const { data, error } = await supabase.from('products')
-          .update({ stock: newStock, price, cost_price: cost, category_id: catId, is_deleted: false })
+          .update({ stock: newStock, price, cost_price: cost, category_id: catId })
           .eq('id', prod.id).select().single();
           
         if (data && !error) {
@@ -317,13 +296,13 @@ export function useStore() {
     sales, 
     categories,
     loading,
+    fetchData,
     addSale, 
     processReceiptSales,
     addCategory,
     deleteCategory,
     addProduct,
     deleteProduct,
-    restoreProduct,
     processExcelImport
   };
 }

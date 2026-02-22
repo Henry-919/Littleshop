@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useStore } from '../hooks/useStore';
-import { AlertTriangle, Plus, Trash2, X, History, RotateCcw } from 'lucide-react';
+import { Package, AlertTriangle, Plus, Trash2, X, Upload } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { ExcelImporter } from './ExcelImporter';
 
 export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
-  const { products, categories, addProduct, deleteProduct, restoreProduct, loading, refreshData } = store;
+  const { products, categories, addProduct, deleteProduct, fetchData, loading } = store;
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'active' | 'deleted'>('active');
 
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -34,21 +34,16 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
 
   const handleDelete = async (id: string, name: string) => {
     if (window.confirm(`Are you sure you want to delete "${name}"?`)) {
-      await deleteProduct(id);
-    }
-  };
-
-  const handleRestore = async (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to restore "${name}"?`)) {
-      await restoreProduct(id);
+      const success = await deleteProduct(id);
+      if (success && fetchData) {
+        await fetchData();
+      }
     }
   };
 
   if (loading) {
     return <div className="p-8 text-center text-slate-500">Loading inventory data from Supabase...</div>;
   }
-
-  const displayedProducts = products.filter(p => viewMode === 'active' ? !p.is_deleted : p.is_deleted);
 
   return (
     <div className="space-y-6">
@@ -58,17 +53,7 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
           <p className="text-slate-500 mt-1">Track and manage your product stock</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <ExcelImporter onImportComplete={refreshData} />
-          
-          <button
-            onClick={() => setViewMode(viewMode === 'active' ? 'deleted' : 'active')}
-            className={`px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2 ${
-              viewMode === 'deleted' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <History className="w-5 h-5" />
-            {viewMode === 'active' ? 'View Deleted' : 'View Active'}
-          </button>
+          <ExcelImporter onImportComplete={() => fetchData && fetchData()} />
 
           <button
             onClick={() => setIsModalOpen(true)}
@@ -94,18 +79,18 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
               </tr>
             </thead>
             <tbody className="text-slate-700 divide-y divide-slate-100">
-              {displayedProducts.length === 0 && (
+              {products.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
-                    No products found in this view.
+                    No products found.
                   </td>
                 </tr>
               )}
-              {displayedProducts.map(product => {
+              {products.map(product => {
                 const isLowStock = product.stock < 5;
                 const category = categories?.find(c => c.id === product.category_id);
                 return (
-                  <tr key={product.id} className={`transition-colors ${viewMode === 'deleted' ? 'bg-slate-50 opacity-75' : 'hover:bg-slate-50/50'}`}>
+                  <tr key={product.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4 font-medium">{product.name}</td>
                     <td className="px-6 py-4 text-slate-500">
                       {category ? (
@@ -116,10 +101,10 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
                     </td>
                     <td className="px-6 py-4">${product.price.toFixed(2)}</td>
                     <td className="px-6 py-4">${(product.cost_price || 0).toFixed(2)}</td>
-                    <td className={`px-6 py-4 font-bold ${isLowStock && viewMode === 'active' ? 'text-red-600' : 'text-slate-700'}`}>
+                    <td className={`px-6 py-4 font-bold ${isLowStock ? 'text-red-600' : 'text-slate-700'}`}>
                       <div className="flex items-center gap-2">
                         <span>{product.stock}</span>
-                        {isLowStock && viewMode === 'active' && (
+                        {isLowStock && (
                           <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
                             <AlertTriangle className="w-3.5 h-3.5" />
                             Low Stock
@@ -128,24 +113,13 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      {viewMode === 'active' ? (
-                        <button
-                          onClick={() => handleDelete(product.id, product.name)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center justify-center"
-                          title="Delete Product"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleRestore(product.id, product.name)}
-                          className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors inline-flex items-center justify-center gap-2 text-sm font-medium"
-                          title="Restore Product"
-                        >
-                          <RotateCcw className="w-4 h-4" />
-                          Restore
-                        </button>
-                      )}
+                      <button
+                        onClick={() => handleDelete(product.id, product.name)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors inline-flex items-center justify-center"
+                        title="Delete Product"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
                     </td>
                   </tr>
                 );

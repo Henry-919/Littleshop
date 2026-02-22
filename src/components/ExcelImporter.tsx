@@ -59,8 +59,7 @@ export function ExcelImporter({ onImportComplete }: { onImportComplete?: () => v
                   stock: existingProd.stock + stock, 
                   price, 
                   cost_price: cost, 
-                  category_id: categoryId,
-                  is_deleted: false
+                  category_id: categoryId
                 })
                 .eq('id', existingProd.id);
             } else {
