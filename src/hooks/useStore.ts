@@ -59,10 +59,14 @@ export function useStore() {
   }, []);
 
   const addCategory = async (name: string) => {
-    if (!supabase) return false;
+    if (!supabase) {
+      alert('Supabase is not configured. Please check your environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY).');
+      return false;
+    }
     const { data, error } = await supabase.from('categories').insert([{ name }]).select().single();
     if (error) {
       console.error('Error adding category:', error);
+      alert(`Error adding category: ${error.message}`);
       return false;
     }
     setCategories(prev => [...prev, data]);
@@ -70,7 +74,10 @@ export function useStore() {
   };
 
   const deleteCategory = async (id: string) => {
-    if (!supabase) return false;
+    if (!supabase) {
+      alert('Supabase is not configured.');
+      return false;
+    }
     const hasProducts = products.some(p => p.category_id === id && !p.is_deleted);
     if (hasProducts) {
       alert('Cannot delete category: There are active products associated with it.');
@@ -80,6 +87,7 @@ export function useStore() {
     const { error } = await supabase.from('categories').delete().eq('id', id);
     if (error) {
       console.error('Error deleting category:', error);
+      alert(`Error deleting category: ${error.message}`);
       return false;
     }
     setCategories(prev => prev.filter(c => c.id !== id));
@@ -87,10 +95,14 @@ export function useStore() {
   };
 
   const addProduct = async (product: Omit<Product, 'id' | 'is_deleted'>) => {
-    if (!supabase) return false;
+    if (!supabase) {
+      alert('Supabase is not configured.');
+      return false;
+    }
     const { data, error } = await supabase.from('products').insert([product]).select().single();
     if (error) {
       console.error('Error adding product:', error);
+      alert(`Error adding product: ${error.message}`);
       return false;
     }
     setProducts(prev => [...prev, data]);
@@ -98,11 +110,15 @@ export function useStore() {
   };
 
   const deleteProduct = async (id: string) => {
-    if (!supabase) return false;
+    if (!supabase) {
+      alert('Supabase is not configured.');
+      return false;
+    }
     // Soft delete
     const { error } = await supabase.from('products').update({ is_deleted: true }).eq('id', id);
     if (error) {
       console.error('Error deleting product:', error);
+      alert(`Error deleting product: ${error.message}`);
       return false;
     }
     setProducts(prev => prev.map(p => p.id === id ? { ...p, is_deleted: true } : p));
@@ -110,11 +126,15 @@ export function useStore() {
   };
 
   const restoreProduct = async (id: string) => {
-    if (!supabase) return false;
+    if (!supabase) {
+      alert('Supabase is not configured.');
+      return false;
+    }
     // Restore soft-deleted product
     const { error } = await supabase.from('products').update({ is_deleted: false }).eq('id', id);
     if (error) {
       console.error('Error restoring product:', error);
+      alert(`Error restoring product: ${error.message}`);
       return false;
     }
     setProducts(prev => prev.map(p => p.id === id ? { ...p, is_deleted: false } : p));

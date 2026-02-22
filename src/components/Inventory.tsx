@@ -1,15 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useStore } from '../hooks/useStore';
-import { Package, AlertTriangle, Plus, Trash2, X, Upload, History, RotateCcw } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { AlertTriangle, Plus, Trash2, X, History, RotateCcw } from 'lucide-react';
+import { ExcelImporter } from './ExcelImporter';
 
 export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
-  const { products, categories, addProduct, deleteProduct, restoreProduct, processExcelImport, loading } = store;
+  const { products, categories, addProduct, deleteProduct, restoreProduct, loading, refreshData } = store;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'active' | 'deleted'>('active');
-  const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -47,48 +44,6 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setImporting(true);
-      setImportProgress('Reading file...');
-      
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        try {
-          const bstr = evt.target?.result;
-          const wb = XLSX.read(bstr, { type: 'binary' });
-          const wsname = wb.SheetNames[0];
-          const ws = wb.Sheets[wsname];
-          const data = XLSX.utils.sheet_to_json(ws);
-          
-          if (data.length === 0) {
-            alert('The Excel file is empty.');
-            setImporting(false);
-            return;
-          }
-
-          const successCount = await processExcelImport(data, setImportProgress);
-          alert(`Import complete! Successfully processed ${successCount} products.`);
-        } catch (err) {
-          console.error(err);
-          alert('Failed to process Excel file. Please check the format.');
-        } finally {
-          setImporting(false);
-          setImportProgress('');
-          if (fileInputRef.current) fileInputRef.current.value = '';
-        }
-      };
-      reader.readAsBinaryString(file);
-    } catch (err) {
-      console.error(err);
-      setImporting(false);
-      setImportProgress('');
-    }
-  };
-
   if (loading) {
     return <div className="p-8 text-center text-slate-500">Loading inventory data from Supabase...</div>;
   }
@@ -103,21 +58,7 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
           <p className="text-slate-500 mt-1">Track and manage your product stock</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <input 
-            type="file" 
-            accept=".xlsx, .xls" 
-            className="hidden" 
-            ref={fileInputRef}
-            onChange={handleFileUpload}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
-            className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
-          >
-            <Upload className="w-5 h-5" />
-            {importing ? 'Importing...' : 'Import Excel'}
-          </button>
+          <ExcelImporter onImportComplete={refreshData} />
           
           <button
             onClick={() => setViewMode(viewMode === 'active' ? 'deleted' : 'active')}
@@ -138,13 +79,6 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
           </button>
         </div>
       </div>
-
-      {importing && (
-        <div className="p-4 bg-indigo-50 text-indigo-700 rounded-xl border border-indigo-100 flex items-center gap-3">
-          <div className="animate-spin rounded-full h-5 w-5 border-2 border-indigo-600 border-t-transparent"></div>
-          <span className="font-medium">{importProgress}</span>
-        </div>
-      )}
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
