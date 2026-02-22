@@ -4,11 +4,12 @@ import { Inventory } from './components/Inventory';
 import { SalesHistory } from './components/SalesHistory';
 import { Dashboard } from './components/Dashboard';
 import { ReceiptScanner } from './components/ReceiptScanner';
+import { Categories } from './components/Categories';
 import { useStore } from './hooks/useStore';
-import { ShoppingCart, Package, History, Store, LayoutDashboard, Camera } from 'lucide-react';
+import { ShoppingCart, Package, History, Store, LayoutDashboard, Camera, Tags } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pos' | 'inventory' | 'history' | 'scan'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pos' | 'inventory' | 'categories' | 'history' | 'scan'>('dashboard');
   const store = useStore();
 
   return (
@@ -19,7 +20,7 @@ export default function App() {
           <Store className="w-8 h-8 text-emerald-400" />
           <h1 className="text-xl font-bold tracking-tight text-emerald-400">ShopManager</h1>
         </div>
-        <nav className="flex-1 px-4 space-y-2">
+        <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
           <button
             onClick={() => setActiveTab('dashboard')}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${
@@ -57,6 +58,15 @@ export default function App() {
             <span className="font-medium">Inventory</span>
           </button>
           <button
+            onClick={() => setActiveTab('categories')}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${
+              activeTab === 'categories' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+            }`}
+          >
+            <Tags className="w-5 h-5" />
+            <span className="font-medium">Categories</span>
+          </button>
+          <button
             onClick={() => setActiveTab('history')}
             className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-colors ${
               activeTab === 'history' ? 'bg-emerald-500/10 text-emerald-400' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
@@ -74,6 +84,7 @@ export default function App() {
         {activeTab === 'pos' && <POS store={store} />}
         {activeTab === 'scan' && <ReceiptScanner store={store} />}
         {activeTab === 'inventory' && <Inventory store={store} />}
+        {activeTab === 'categories' && <Categories store={store} />}
         {activeTab === 'history' && <SalesHistory store={store} />}
       </main>
     </div>
