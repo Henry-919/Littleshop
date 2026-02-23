@@ -1,17 +1,28 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { useStore } from '../hooks/useStore';
-import { Upload, Loader2, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
+import { Upload, Loader2, FileSpreadsheet } from 'lucide-react';
 
-export function ExcelImporter({ store }: { store: ReturnType<typeof useStore> }) {
-  const { processExcelImport, fetchData } = store;
+// 修复点：修改 Props 定义，使其既能接收 store，也能兼容回调
+interface ExcelImporterProps {
+  store?: any; 
+  onImportComplete?: () => void;
+}
+
+export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
+  // 防御性处理：防止 store 为空时崩溃
+  const processExcelImport = store?.processExcelImport;
+  const fetchData = store?.fetchData || onImportComplete;
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState('');
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !processExcelImport) {
+      if (!processExcelImport) alert("Store 导入功能未就绪");
+      return;
+    }
 
     setImporting(true);
     setProgress('正在读取文件...');
@@ -20,30 +31,32 @@ export function ExcelImporter({ store }: { store: ReturnType<typeof useStore> })
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
+        // 使用 try-catch 包裹解析过程
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         
-        // 将 Excel 转换为 JSON 对象数组
         const data = XLSX.utils.sheet_to_json(ws);
         
         if (data.length === 0) {
           alert('Excel 文件似乎是空的');
+          setImporting(false);
           return;
         }
 
-        // 🚀 调用 store 中统一的导入逻辑
-        // 这样可以确保导入后，store 里的 products 和 categories 状态同步更新
-        const successCount = await processExcelImport(data, (msg) => setProgress(msg));
+        setProgress('正在同步到数据库...');
+        const successCount = await processExcelImport(data, (msg: string) => setProgress(msg));
         
-        alert(`导入成功！共处理 ${successCount} 件商品。`);
+        alert(`导入成功！共处理 ${successCount} 条数据。`);
         
-        // 确保 UI 彻底刷新
-        if (fetchData) await fetchData();
+        // 刷新 UI
+        if (typeof fetchData === 'function') {
+          await fetchData();
+        }
 
       } catch (err) {
         console.error('Excel Import Error:', err);
-        alert('解析 Excel 失败，请确保格式正确（包含：商品名称、类目、销售价、成本价、库存数量）');
+        alert('解析 Excel 失败，请确保格式正确（列名需包含：商品名称、类目、销售价、成本价、库存数量）');
       } finally {
         setImporting(false);
         setProgress('');
@@ -72,23 +85,23 @@ export function ExcelImporter({ store }: { store: ReturnType<typeof useStore> })
       <button
         onClick={() => fileInputRef.current?.click()}
         disabled={importing}
-        className={`px-4 py-2 rounded-xl font-bold transition-all flex items-center gap-2 shadow-sm
+        className={`px-4 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 shadow-sm border
           ${importing 
-            ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-            : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100 active:scale-95'
+            ? 'bg-slate-50 text-slate-400 cursor-not-allowed border-slate-100' 
+            : 'bg-white text-slate-700 hover:bg-slate-50 active:scale-95 border-slate-200'
           }`}
       >
         {importing ? (
-          <Loader2 className="w-5 h-5 animate-spin" />
+          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
         ) : (
-          <FileSpreadsheet className="w-5 h-5" />
+          <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
         )}
-        {importing ? '正在导入...' : '导入 Excel'}
+        <span className="text-sm">{importing ? '处理中...' : '导入 Excel'}</span>
       </button>
 
       {importing && (
-        <div className="flex items-center gap-2 animate-pulse">
-          <span className="text-sm text-indigo-600 font-medium bg-indigo-50 px-3 py-1 rounded-full border border-indigo-100">
+        <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2">
+          <span className="text-[10px] text-indigo-600 font-black bg-indigo-50 px-2 py-1 rounded border border-indigo-100 uppercase">
             {progress}
           </span>
         </div>
