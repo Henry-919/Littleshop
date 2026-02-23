@@ -110,6 +110,41 @@ export function useStore() {
     return false;
   };
 
+  const addCategory = async (name: string) => {
+    const { data, error } = await supabase.from('categories').insert([{ name }]).select().single();
+    if (!error && data) setCategories(prev => [...prev, data]);
+    return !error;
+  };
+
+  const deleteCategory = async (id: string) => {
+    // 1. 将属于该分类的商品 category_id 设为 null
+    await supabase.from('products').update({ category_id: null }).eq('category_id', id);
+    // 2. 删除分类
+    const { error } = await supabase.from('categories').delete().eq('id', id);
+    if (!error) {
+      setCategories(prev => prev.filter(c => c.id !== id));
+      setProducts(prev => prev.map(p => p.category_id === id ? { ...p, category_id: undefined } : p));
+    }
+    return !error;
+  };
+
+  const deleteSale = async (id: string) => {
+    const sale = sales.find(s => s.id === id);
+    if (!sale) return false;
+
+    // 恢复库存
+    const product = products.find(p => p.id === sale.productId);
+    if (product) {
+      const newStock = product.stock + sale.quantity;
+      await supabase.from('products').update({ stock: newStock }).eq('id', product.id);
+      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, stock: newStock } : p));
+    }
+
+    const { error } = await supabase.from('sales').delete().eq('id', id);
+    if (!error) setSales(prev => prev.filter(s => s.id !== id));
+    return !error;
+  };
+
   const processExcelImport = async (rows: any[], onProgress: (msg: string) => void) => {
     let successCount = 0;
     for (const row of rows) {
@@ -135,6 +170,7 @@ export function useStore() {
 
   return { 
     products, sales, categories, loading, fetchData,
-    addProduct, updateProduct, deleteProduct, addSale, processExcelImport 
+    addProduct, updateProduct, deleteProduct, addSale, processExcelImport,
+    addCategory, deleteCategory, deleteSale
   };
 }

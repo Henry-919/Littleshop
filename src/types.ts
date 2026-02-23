@@ -3,6 +3,7 @@ export interface Product {
   name: string;
   stock: number;
   price: number;
+  category?: string;
 }
 
 export interface Sale {

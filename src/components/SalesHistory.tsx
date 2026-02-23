@@ -11,14 +11,14 @@ export function SalesHistory({ store }: { store: ReturnType<typeof useStore> }) 
 
   const handleDelete = async (saleId: string, productId: string, quantity: number) => {
     if (window.confirm('确定要撤销这条销售记录吗？\n撤销后该商品的库存将自动还原。')) {
-      await deleteSale(saleId, productId, quantity);
+      await deleteSale(saleId);
     }
   };
 
   // 按照时间倒序排列，最新的排在最前面
   const sortedSales = [...sales].sort((a, b) => {
-    const dateA = new Date(a.date || a.created_at || 0).getTime();
-    const dateB = new Date(b.date || b.created_at || 0).getTime();
+    const dateA = new Date(a.date || 0).getTime();
+    const dateB = new Date(b.date || 0).getTime();
     return dateB - dateA;
   });
 
@@ -57,9 +57,9 @@ export function SalesHistory({ store }: { store: ReturnType<typeof useStore> }) 
             </thead>
             <tbody className="text-sm divide-y divide-slate-50">
               {sortedSales.map(sale => {
-                const productId = sale.productId || sale.product_id;
-                const totalAmount = sale.totalAmount || sale.total_amount || 0;
-                const date = sale.date || sale.created_at;
+                const productId = sale.productId;
+                const totalAmount = sale.totalAmount || 0;
+                const date = sale.date;
 
                 return (
                   <tr key={sale.id} className="hover:bg-slate-50/50 transition-colors group">

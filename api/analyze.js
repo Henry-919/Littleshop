@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { GoogleGenAI, Type } from '@google/genai';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -8,36 +8,8 @@ export default async function handler(req, res) {
     if (!base64Data) return res.status(400).json({ error: '请上传图片' });
 
     // 初始化最新 SDK
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     
-    // 使用目前最先进的 2.0 模型
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash", 
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: SchemaType.OBJECT,
-          properties: {
-            items: {
-              type: SchemaType.ARRAY,
-              items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  productName: { type: SchemaType.STRING },
-                  unitPrice: { type: SchemaType.NUMBER },
-                  quantity: { type: SchemaType.NUMBER },
-                  totalAmount: { type: SchemaType.NUMBER }
-                },
-                required: ["productName", "unitPrice", "quantity", "totalAmount"]
-              }
-            },
-            saleDate: { type: SchemaType.STRING },
-            error: { type: SchemaType.STRING }
-          }
-        }
-      }
-    });
-
     const prompt = `你是一个专业的财务 OCR。任务：提取手写发票信息。
 抬头关键词：WANG YUWU INTERNATIONAL SPC。
 注意：
@@ -49,12 +21,40 @@ export default async function handler(req, res) {
     // 自动清洗可能携带的 Base64 前缀
     const pureBase64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
 
-    const result = await model.generateContent([
-      { inlineData: { data: pureBase64, mimeType: mimeType || "image/jpeg" } },
-      prompt
-    ]);
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [
+          { inlineData: { data: pureBase64, mimeType: mimeType || "image/jpeg" } },
+          { text: prompt }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            items: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  productName: { type: Type.STRING },
+                  unitPrice: { type: Type.NUMBER },
+                  quantity: { type: Type.NUMBER },
+                  totalAmount: { type: Type.NUMBER }
+                },
+                required: ["productName", "unitPrice", "quantity", "totalAmount"]
+              }
+            },
+            saleDate: { type: Type.STRING },
+            error: { type: Type.STRING }
+          }
+        }
+      }
+    });
 
-    const text = result.response.text();
+    const text = response.text;
     return res.status(200).json(JSON.parse(text));
 
   } catch (error) {
