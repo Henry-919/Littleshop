@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase.ts';
+import { supabase } from '../lib/supabase';
 
 interface Product {
   id: string;
