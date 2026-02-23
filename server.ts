@@ -59,9 +59,9 @@ async function startServer() {
       console.log('[API] Calling Gemini AI...');
       let response;
       try {
-        console.log('[API] Attempting with gemini-2.0-flash...');
+        console.log('[API] Attempting with gemini3flash...');
         response = await ai.models.generateContent({
-          model: "gemini-2.0-flash",
+          model: "gemini3flash",
           contents: [{
             parts: [
               {
@@ -88,13 +88,13 @@ async function startServer() {
           },
         });
       } catch (err: any) {
-        console.warn('[API] gemini-2.0-flash failed, falling back to gemini-1.5-flash...', err.message);
+        console.warn('[API] gemini3flash failed, falling back to gemini-2.0-flash...', err.message);
         // If rate limited or model not available, surface that clearly
         if (err && err.message && err.message.toLowerCase().includes('rate')) {
           return res.status(429).json({ error: 'rate_limited', details: err.message });
         }
         response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
+          model: "gemini-2.0-flash",
           contents: [{
             parts: [
               {
