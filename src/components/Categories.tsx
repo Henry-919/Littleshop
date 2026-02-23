@@ -16,21 +16,28 @@ export function Categories({ store }: { store: ReturnType<typeof useStore> }) {
     const success = await addCategory(name);
     if (success) {
       setNewCategoryName('');
+      alert(`分类 "${name}" 添加成功！`);
+    } else {
+      alert(`分类 "${name}" 添加失败，请重试。`);
     }
     setIsSubmitting(false);
   };
 
   const handleDelete = async (id: string, name: string) => {
-    // 检查该类目下是否有商品
     const productCount = products.filter(p => p.category_id === id).length;
-    
+
     let message = `确定要删除分类 "${name}" 吗？`;
     if (productCount > 0) {
       message = `该分类下还有 ${productCount} 个商品，删除后这些商品将变为“未分类”。确定删除吗？`;
     }
 
     if (window.confirm(message)) {
-      await deleteCategory(id);
+      const success = await deleteCategory(id);
+      if (success) {
+        alert(`分类 "${name}" 删除成功！`);
+      } else {
+        alert(`分类 "${name}" 删除失败，请重试。`);
+      }
     }
   };
 

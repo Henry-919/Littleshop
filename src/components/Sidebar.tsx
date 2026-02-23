@@ -1,8 +1,8 @@
 import React from 'react';
-import { ShoppingCart, Package, BarChart3, History, LayoutDashboard, Store } from 'lucide-react';
+import { ShoppingCart, Package, BarChart3, History, LayoutDashboard, Store, Tags } from 'lucide-react';
 
 // 统一 Tab 类型定义
-export type TabType = 'dashboard' | 'pos' | 'inventory' | 'history' | 'analytics';
+export type TabType = 'dashboard' | 'pos' | 'inventory' | 'history' | 'analytics' | 'categories';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -15,6 +15,7 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     { id: 'dashboard', label: '经营看板', icon: LayoutDashboard },
     { id: 'pos', label: '收银终端', icon: ShoppingCart },
     { id: 'inventory', label: '库存管理', icon: Package },
+    { id: 'categories', label: '商品分类', icon: Tags },
     { id: 'history', label: '销售流水', icon: History },
     { id: 'analytics', label: '深度分析', icon: BarChart3 },
   ] as const;

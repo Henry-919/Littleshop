@@ -59,7 +59,10 @@ export function useStore() {
   // --- 核心操作 ---
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
-    const { data, error } = await supabase.from('products').insert([product]).select().single();
+    const { data, error } = await supabase.from('products').insert([{
+      ...product,
+      stock: product.stock || 10 // Default stock to 10 if not provided
+    }]).select().single();
     if (!error && data) setProducts(prev => [...prev, data]);
     return { data, error };
   };
@@ -151,14 +154,14 @@ export function useStore() {
       const name = row['商品名称'];
       if (!name) continue;
       onProgress(`处理中: ${name}`);
-      
+
       const price = parseFloat(row['销售价'] || '0');
       const stock = parseInt(row['库存数量'] || '0', 10);
-      
-      // 简单逻辑：如果存在则更新，不存在则插入
+
+      // 修改逻辑：如果存在则覆盖库存数量
       const existing = products.find(p => p.name === name);
       if (existing) {
-        await updateProduct(existing.id, { stock: existing.stock + stock, price });
+        await updateProduct(existing.id, { stock, price });
       } else {
         await addProduct({ name, price, stock, cost_price: parseFloat(row['成本价'] || '0') });
       }

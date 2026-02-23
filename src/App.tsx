@@ -6,6 +6,7 @@ import { POS } from './components/POS';
 import { Inventory } from './components/Inventory';
 import { SalesHistory } from './components/SalesHistory';
 import { Analytics } from './components/Analytics';
+import { Categories } from './components/Categories';
 
 function App() {
   const store = useStore();
@@ -20,6 +21,8 @@ function App() {
         return <POS store={store} />;
       case 'inventory':
         return <Inventory store={store} />;
+      case 'categories':
+        return <Categories store={store} />;
       case 'history':
         return <SalesHistory store={store} />;
       case 'analytics':
@@ -44,6 +47,7 @@ function App() {
               {activeTab === 'dashboard' && '经营看板'}
               {activeTab === 'pos' && '收银终端'}
               {activeTab === 'inventory' && '库存管理'}
+              {activeTab === 'categories' && '商品分类'}
               {activeTab === 'history' && '销售流水'}
               {activeTab === 'analytics' && '深度分析'}
             </span>

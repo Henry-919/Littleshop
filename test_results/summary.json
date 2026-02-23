@@ -1,0 +1,98 @@
+[
+  {
+    "file": "inv1.jpg",
+    "result": {
+      "status": 200,
+      "ok": true,
+      "body": {
+        "items": [
+          {
+            "productName": "Ly-74-2",
+            "unitPrice": 2.5,
+            "quantity": 2,
+            "totalAmount": 5
+          }
+        ],
+        "saleDate": "2026-02-20"
+      }
+    }
+  },
+  {
+    "file": "inv2.jpg",
+    "result": {
+      "status": 200,
+      "ok": true,
+      "body": {
+        "items": [
+          {
+            "productName": "653 D-2",
+            "unitPrice": 9,
+            "quantity": 1,
+            "totalAmount": 9
+          }
+        ],
+        "saleDate": "2026-02-20"
+      }
+    }
+  },
+  {
+    "file": "invoice.jpg",
+    "result": {
+      "status": 200,
+      "ok": true,
+      "body": {
+        "items": [
+          {
+            "productName": "Ly-74-2",
+            "unitPrice": 2.5,
+            "quantity": 2,
+            "totalAmount": 5
+          }
+        ],
+        "saleDate": "2026-02-20"
+      }
+    }
+  },
+  {
+    "file": "inv3.jpg",
+    "result": {
+      "status": 200,
+      "ok": true,
+      "body": {
+        "items": [
+          {
+            "productName": "41901-2",
+            "unitPrice": 4,
+            "quantity": 1,
+            "totalAmount": 4
+          }
+        ],
+        "saleDate": "2026-02-20"
+      }
+    }
+  },
+  {
+    "file": "inv4.jpg",
+    "result": {
+      "status": 200,
+      "ok": true,
+      "body": {
+        "items": [
+          {
+            "productName": "A 20-5-2",
+            "unitPrice": 1.4,
+            "quantity": 10,
+            "totalAmount": 14
+          },
+          {
+            "productName": "A-205-5",
+            "unitPrice": 1.4,
+            "quantity": 5,
+            "totalAmount": 7
+          }
+        ],
+        "saleDate": "2020-02-20"
+      }
+    }
+  }
+]

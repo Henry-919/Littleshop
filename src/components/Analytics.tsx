@@ -10,12 +10,21 @@ export function Analytics() {
   useEffect(() => {
     setLoading(true);
     fetch('/api/analytics')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        return res.json();
+      })
       .then(d => {
         setData(d);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        console.error('Failed to load analytics data:', err);
+        setLoading(false);
+        alert('加载分析数据失败，请稍后重试。');
+      });
   }, []);
 
   if (loading) return (

@@ -193,6 +193,7 @@ export function ReceiptScanner({ store }: { store: any }) {
       alert("入库成功！");
       setResult(null);
       setImages([]);
+      await store.fetchData(); // Refresh store data to update sales history
     } catch (err) {
       alert("保存失败");
     } finally {

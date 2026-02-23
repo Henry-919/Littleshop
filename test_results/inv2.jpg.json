@@ -1,0 +1,15 @@
+{
+  "status": 200,
+  "ok": true,
+  "body": {
+    "items": [
+      {
+        "productName": "653 D-2",
+        "unitPrice": 9,
+        "quantity": 1,
+        "totalAmount": 9
+      }
+    ],
+    "saleDate": "2026-02-20"
+  }
+}

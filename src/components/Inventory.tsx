@@ -16,6 +16,7 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>(null);
+  const [editingStock, setEditingStock] = useState<{ [key: string]: number }>({});
 
   // 搜索过滤
   const filteredProducts = useMemo(() => {
@@ -34,6 +35,21 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
     if (!editingId || !updateProduct) return;
     const success = await updateProduct(editingId, editFormData);
     if (success) setEditingId(null);
+  };
+
+  const handleStockChange = (id: string, value: number) => {
+    setEditingStock(prev => ({ ...prev, [id]: value }));
+  };
+
+  const saveStockChange = async (id: string) => {
+    const newStock = editingStock[id];
+    if (newStock !== undefined) {
+      await updateProduct(id, { stock: newStock });
+      setEditingStock(prev => {
+        const { [id]: _, ...rest } = prev;
+        return rest;
+      });
+    }
   };
 
   // 如果正在加载且没数据，显示占位符防止白屏
@@ -90,10 +106,8 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
             <thead>
               <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
                 <th className="px-6 py-4">商品名称</th>
-                <th className="px-6 py-4">分类</th>
-                <th className="px-6 py-4">单价</th>
                 <th className="px-6 py-4">库存</th>
-                <th className="px-6 py-4 text-right">操作</th>
+                <th className="px-6 py-4">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -108,31 +122,23 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
                       />
                     ) : <span className="font-bold text-slate-700">{product.name}</span>}
                   </td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-slate-100 rounded text-[10px] font-black uppercase text-slate-400">
-                      {categories.find(c => c.id === product.category_id)?.name || '未分类'}
-                    </span>
+                  <td>
+                    {editingStock[product.id] !== undefined ? (
+                      <input
+                        type="number"
+                        value={editingStock[product.id]}
+                        onChange={(e) => handleStockChange(product.id, parseInt(e.target.value, 10))}
+                      />
+                    ) : (
+                      product.stock
+                    )}
                   </td>
-                  <td className="px-6 py-4 font-black text-emerald-600">
-                    ￥{Number(product.price || 0).toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <span className={`font-bold ${(product.stock || 0) < 5 ? 'text-rose-500' : 'text-slate-600'}`}>
-                        {product.stock || 0}
-                      </span>
-                      {(product.stock || 0) < 5 && <AlertTriangle className="w-4 h-4 text-rose-500 animate-pulse" />}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {editingId === product.id ? (
-                        <button onClick={handleSaveEdit} className="text-emerald-600"><Check size={18}/></button>
-                      ) : (
-                        <button onClick={() => startEditing(product)} className="text-slate-400 hover:text-indigo-600"><Edit2 size={16}/></button>
-                      )}
-                      <button onClick={() => deleteProduct?.(product.id)} className="text-slate-400 hover:text-rose-600"><Trash2 size={16}/></button>
-                    </div>
+                  <td>
+                    {editingStock[product.id] !== undefined ? (
+                      <button onClick={() => saveStockChange(product.id)}>保存</button>
+                    ) : (
+                      <button onClick={() => handleStockChange(product.id, product.stock)}>编辑</button>
+                    )}
                   </td>
                 </tr>
               ))}
