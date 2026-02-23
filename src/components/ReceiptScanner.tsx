@@ -2,13 +2,43 @@ import React, { useState, useRef } from 'react';
 import { useStore } from '../hooks/useStore';
 import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X, Plus } from 'lucide-react';
 
-// 相似度算法：用于匹配现有库存商品
+// 1. 相似度算法：用于匹配现有库存商品
 const getSimilarity = (a: string, b: string): number => {
   const aLower = a.toLowerCase();
   const bLower = b.toLowerCase();
   if (aLower === bLower) return 1;
   if (aLower.includes(bLower) || bLower.includes(aLower)) return 0.8;
-  return 0; // 简化版，可根据需要替换回 Levenshtein
+  return 0;
+};
+
+// 2. 图片压缩工具函数：减少传输体积，大幅提升识别启动速度
+const compressImage = (base64Str: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 1500; // 足够清晰用于 OCR
+      let width = img.width;
+      let height = img.height;
+
+      if (width > MAX_WIDTH) {
+        height *= MAX_WIDTH / width;
+        width = MAX_WIDTH;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error("Canvas context failed"));
+      
+      ctx.drawImage(img, 0, 0, width, height);
+      // 导出为 jpeg 格式，质量 0.8，并只保留 base64 数据部分
+      const compressed = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+      resolve(compressed);
+    };
+    img.onerror = () => reject(new Error("图片加载失败"));
+  });
 };
 
 export function ReceiptScanner({ store }: { store: any }) {
@@ -23,7 +53,7 @@ export function ReceiptScanner({ store }: { store: any }) {
   const [salesperson, setSalesperson] = useState('自动扫描');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. 图片处理：压缩并转为 Base64
+  // 图片上传处理
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     setLoading(true);
@@ -44,29 +74,38 @@ export function ReceiptScanner({ store }: { store: any }) {
     }
   };
 
-  // 2. 调用后端 AI 接口
+  // 核心：调用后端 AI 接口 (已优化为并发请求)
   const processImage = async () => {
     if (images.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      let allItems: any[] = [];
-      let detectedDate = "";
-
-      for (const img of images) {
-        // 核心修复：只发送 Base64 数据部分，去掉 data:image/jpeg;base64,
-        const base64Data = img.split(',')[1];
-        
+      // 使用 Promise.all 并发处理所有图片，提速显著
+      const uploadPromises = images.map(async (img) => {
+        const compressedBase64 = await compressImage(img); 
         const response = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Data, mimeType: "image/jpeg" }),
+          body: JSON.stringify({ 
+            base64Data: compressedBase64, 
+            mimeType: "image/jpeg" 
+          }),
         });
-
+        
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "AI 解析失败");
+        return data;
+      });
 
-        // 匹配逻辑
+      const allResults = await Promise.all(uploadPromises);
+
+      // 合并所有图片的识别结果
+      let allItems: any[] = [];
+      let detectedDate = "";
+
+      allResults.forEach(data => {
+        if (data.saleDate) detectedDate = data.saleDate;
+        
         const matched = data.items.map((item: any) => {
           let bestMatch = products.find((p: any) => getSimilarity(p.name, item.productName) > 0.7);
           return {
@@ -75,27 +114,25 @@ export function ReceiptScanner({ store }: { store: any }) {
             hasMathDiscrepancy: Math.abs(item.unitPrice * item.quantity - item.totalAmount) > 0.1
           };
         });
-
         allItems = [...allItems, ...matched];
-        if (data.saleDate) detectedDate = data.saleDate;
-      }
+      });
 
       setResult({ items: allItems, saleDate: detectedDate });
     } catch (err: any) {
+      console.error(err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // 3. 保存到数据库
+  // 保存到数据库
   const handleSave = async () => {
     if (!result) return;
     setLoading(true);
     try {
       for (const item of result.items) {
         let finalId = item.matchedProductId;
-        // 如果是新商品，先创建
         if (finalId === 'CREATE_NEW') {
           const { data: newProd } = await addProduct({
             name: item.productName,
@@ -104,7 +141,6 @@ export function ReceiptScanner({ store }: { store: any }) {
           });
           finalId = newProd.id;
         }
-        // 记录销售
         await addSale(finalId, item.quantity, salesperson, result.saleDate);
       }
       alert("入库成功！");
@@ -155,7 +191,7 @@ export function ReceiptScanner({ store }: { store: any }) {
               className="w-full py-3 bg-emerald-500 text-white rounded-xl font-bold disabled:opacity-50 flex justify-center items-center gap-2"
             >
               {loading ? <Loader2 className="animate-spin" /> : <CheckCircle size={20} />}
-              {loading ? "AI 深度识别中..." : "开始识别小票"}
+              {loading ? "AI 并发深度识别中..." : "开始识别小票"}
             </button>
           )}
         </div>
@@ -179,6 +215,7 @@ export function ReceiptScanner({ store }: { store: any }) {
                     </div>
                     <div className="text-xs text-slate-500 mt-1">
                       {item.quantity} x ￥{item.unitPrice}
+                      {item.hasMathDiscrepancy && <span className="ml-2 text-amber-500 font-medium">⚠️ 金额校验异常</span>}
                     </div>
                     <select 
                       value={item.matchedProductId}
@@ -201,7 +238,7 @@ export function ReceiptScanner({ store }: { store: any }) {
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 text-sm italic">
-              <p>暂无识别结果</p>
+              <p>{loading ? "AI 正在分析，请稍候..." : "暂无识别结果"}</p>
             </div>
           )}
         </div>

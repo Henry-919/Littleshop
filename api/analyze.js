@@ -10,8 +10,8 @@ export default async function handler(req, res) {
     // 初始化最新 SDK
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     
-    const prompt = `你是一个专业的财务 OCR。任务：提取手写发票信息。
-抬头关键词：WANG YUWU INTERNATIONAL SPC。
+    const prompt = `你是一个专业的财务 OCR。任务:提取手写发票信息。
+抬头关键词:WANG YUWU INTERNATIONAL SPC。
 注意：
 1. DESCRIPTION 栏手写内容作为 productName。
 2. 识别 QTY (数量), RATE (单价), AMOUNT (总额)。
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     const pureBase64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.0-flash",
       contents: {
         parts: [
           { inlineData: { data: pureBase64, mimeType: mimeType || "image/jpeg" } },
@@ -31,6 +31,7 @@ export default async function handler(req, res) {
       },
       config: {
         responseMimeType: "application/json",
+        temperature: 0.1
         responseSchema: {
           type: Type.OBJECT,
           properties: {
