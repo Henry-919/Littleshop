@@ -1,25 +1,16 @@
 import React, { useState, useRef } from 'react';
 import { useStore } from '../hooks/useStore';
-import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X } from 'lucide-react';
+import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X, Tag } from 'lucide-react';
 
+// 相似度计算算法保持不变
 const levenshtein = (a: string, b: string): number => {
   const matrix = [];
-  for (let i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
-        );
-      }
+      if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
+      else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
     }
   }
   return matrix[b.length][a.length];
@@ -36,7 +27,7 @@ const getSimilarity = (a: string, b: string): number => {
 };
 
 export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }) {
-  const { products, addSale } = store;
+  const { products, addSale, addProduct } = store;
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -44,9 +35,10 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
     saleDate?: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [salesperson, setSalesperson] = useState('Auto-Scanner');
+  const [salesperson, setSalesperson] = useState('自动扫描');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 图片压缩逻辑
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -56,46 +48,33 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
         img.src = event.target?.result as string;
         img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1600;
-          const MAX_HEIGHT = 1600;
+          const MAX_SIZE = 1600;
           let width = img.width;
           let height = img.height;
-
           if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
+            if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
           } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
+            if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
           }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
           resolve(canvas.toDataURL('image/jpeg', 0.8));
         };
-        img.onerror = (error) => reject(error);
       };
-      reader.onerror = (error) => reject(error);
     });
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
+    const files = Array.from(e.target.files || []);
     if (files.length > 0) {
+      setLoading(true);
       try {
-        setLoading(true);
-        const compressedImages = await Promise.all(files.map(file => compressImage(file)));
-        setImages(prev => [...prev, ...compressedImages]);
+        const compressed = await Promise.all(files.map(compressImage));
+        setImages(prev => [...prev, ...compressed]);
         setResult(null);
         setError(null);
       } catch (err) {
-        console.error('Image compression error:', err);
-        setError('Failed to process image files.');
+        setError('图片处理失败');
       } finally {
         setLoading(false);
       }
@@ -114,280 +93,202 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
         const base64Data = image.split(',')[1];
         const mimeType = image.split(';')[0].split(':')[1];
 
-        // Call the new Vercel Serverless Function
         const response = await fetch('/api/analyze', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ base64Data, mimeType }),
         });
 
         const parsed = await response.json();
+        if (!response.ok) throw new Error(parsed.error || "扫描接口异常");
 
-        if (!response.ok) {
-          throw new Error(parsed.error || "Failed to process image");
-        }
+        const matchedItems = parsed.items?.map((item: any) => {
+          const calculatedTotal = item.unitPrice * item.quantity;
+          const hasMathDiscrepancy = Math.abs(calculatedTotal - item.totalAmount) > 0.01;
+          const finalUnitPrice = hasMathDiscrepancy ? (item.totalAmount / item.quantity) : item.unitPrice;
 
-        if (parsed.error) {
-          throw new Error(parsed.error);
-        } else {
-          const matchedItems = parsed.items?.map((item: any) => {
-            // Rule 1: Math check
-            const calculatedTotal = item.unitPrice * item.quantity;
-            const hasMathDiscrepancy = Math.abs(calculatedTotal - item.totalAmount) > 0.01;
-            const finalUnitPrice = hasMathDiscrepancy ? (item.totalAmount / item.quantity) : item.unitPrice;
-
-            // Rule 2: Match product or CREATE_NEW
-            let bestMatch = null;
-            let highestSimilarity = 0;
-
-            for (const p of products) {
-              const sim = getSimilarity(p.name, item.productName);
-              if (sim > highestSimilarity) {
-                highestSimilarity = sim;
-                bestMatch = p;
-              }
-            }
-
-            const matchedProductId = (highestSimilarity > 0.4 && bestMatch) ? bestMatch.id : 'CREATE_NEW';
-
-            return {
-              productName: item.productName,
-              unitPrice: finalUnitPrice,
-              quantity: item.quantity,
-              totalAmount: item.totalAmount,
-              hasMathDiscrepancy,
-              matchedProductId
-            };
-          }) || [];
-          
-          allMatchedItems = [...allMatchedItems, ...matchedItems];
-          
-          // Rule 3: Date fallback
-          if (!finalDate && parsed.saleDate) {
-            let d = parsed.saleDate;
-            if (d.length === 5) { // e.g. 05-12
-              d = `2026-${d}`;
-            }
-            finalDate = d;
+          let bestMatch = null;
+          let highestSimilarity = 0;
+          for (const p of products) {
+            const sim = getSimilarity(p.name, item.productName);
+            if (sim > highestSimilarity) { highestSimilarity = sim; bestMatch = p; }
           }
-        }
+
+          return {
+            productName: item.productName,
+            unitPrice: finalUnitPrice,
+            quantity: item.quantity,
+            totalAmount: item.totalAmount,
+            hasMathDiscrepancy,
+            matchedProductId: (highestSimilarity > 0.4 && bestMatch) ? bestMatch.id : 'CREATE_NEW'
+          };
+        }) || [];
+        
+        allMatchedItems = [...allMatchedItems, ...matchedItems];
+        if (!finalDate && parsed.saleDate) finalDate = parsed.saleDate.length === 5 ? `2026-${parsed.saleDate}` : parsed.saleDate;
       }
       
+      setResult({ items: allMatchedItems, saleDate: finalDate });
       if (navigator.vibrate) navigator.vibrate(100);
-      
-      setResult({
-        items: allMatchedItems,
-        saleDate: finalDate
-      });
     } catch (err: any) {
-      console.error('Detailed OCR Error:', err);
-      setError(err.message || "An error occurred while processing the images. Please check the console for details.");
+      setError(err.message || "解析失败，请检查网络或图片清晰度");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleMatchChange = (index: number, productId: string) => {
-    if (!result) return;
-    const newItems = [...result.items];
-    newItems[index].matchedProductId = productId;
-    setResult({ ...result, items: newItems });
-  };
-
   const handleSave = async () => {
     if (!result) return;
+    setLoading(true);
     
-    const itemsToProcess = result.items
-      .filter(i => i.matchedProductId && i.matchedProductId !== '')
-      .map(i => ({
-        productId: i.matchedProductId!,
-        productName: i.productName,
-        price: i.unitPrice,
-        quantity: i.quantity,
-        totalAmount: i.totalAmount
-      }));
+    try {
+      const dateToUse = result.saleDate ? new Date(result.saleDate).toISOString() : new Date().toISOString();
+      let successCount = 0;
 
-    if (itemsToProcess.length === 0) {
-      alert('No items selected to record.');
-      return;
-    }
+      // 核心更新：循环处理，支持实时创建新商品并获得 ID
+      for (const item of result.items) {
+        if (!item.matchedProductId) continue;
 
-    const dateToUse = result.saleDate ? new Date(result.saleDate).toISOString() : new Date().toISOString();
-    
-    const failedItems = await store.processReceiptSales(itemsToProcess, salesperson, dateToUse);
-    
-    if (failedItems.length === 0) {
-      if (navigator.vibrate) navigator.vibrate(100);
-      alert('All items recorded successfully!');
+        let finalId = item.matchedProductId;
+
+        // 如果标记为新商品，先执行 addProduct
+        if (finalId === 'CREATE_NEW') {
+          const { data: newProd, error: addError } = await addProduct({
+            name: item.productName,
+            price: item.unitPrice,
+            stock: 0, // 初始库存为0，因为是从小票扫描出来的销售
+            cost_price: 0
+          });
+          if (addError || !newProd) {
+            console.error(`无法创建商品: ${item.productName}`);
+            continue;
+          }
+          finalId = newProd.id;
+        }
+
+        // 记录销售
+        const saleSuccess = await addSale(finalId, item.quantity, salesperson, dateToUse);
+        if (saleSuccess) successCount++;
+      }
+
+      alert(`处理完成：成功记录 ${successCount} 条销售记录`);
       setImages([]);
       setResult(null);
-    } else {
-      alert(`Failed to record some items due to insufficient stock:\n${failedItems.join('\n')}`);
+    } catch (err) {
+      alert("保存过程中发生错误");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100">
-        <h2 className="text-2xl font-bold text-slate-900">Scan Receipt</h2>
-        <p className="text-slate-500 mt-1">Upload photos of receipts to automatically extract and record sales.</p>
+        <h2 className="text-2xl font-bold text-slate-900">小票扫描录入</h2>
+        <p className="text-slate-500 mt-1">上传纸质小票照片，AI 将自动识别商品、单价、数量并同步到销售记录。</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Upload Section */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-[400px]">
+        {/* 左侧：图片上传区 */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-[450px]">
           {images.length > 0 ? (
-            <div className="w-full space-y-4 flex-1 flex flex-col">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 overflow-y-auto max-h-[300px] p-2">
+            <div className="flex-1 flex flex-col">
+              <div className="grid grid-cols-2 gap-4 overflow-y-auto max-h-[350px] p-2">
                 {images.map((img, idx) => (
-                  <div key={idx} className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 aspect-square flex items-center justify-center">
-                    <img src={img} alt={`Receipt ${idx + 1}`} className="max-h-full object-cover" />
-                    <button 
-                      onClick={() => {
-                        const newImages = [...images];
-                        newImages.splice(idx, 1);
-                        setImages(newImages);
-                        if (newImages.length === 0) setResult(null);
-                      }}
-                      className="absolute top-1 right-1 p-1 bg-white/80 hover:bg-white rounded-full text-slate-700 shadow-sm"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                  <div key={idx} className="relative rounded-xl overflow-hidden border border-slate-200 aspect-square">
+                    <img src={img} className="w-full h-full object-cover" alt="receipt" />
+                    <button onClick={() => {
+                      const n = [...images]; n.splice(idx, 1); setImages(n);
+                      if(n.length === 0) setResult(null);
+                    }} className="absolute top-1 right-1 p-1 bg-white/90 rounded-full shadow-md"><X className="w-4 h-4"/></button>
                   </div>
                 ))}
-                <div 
-                  className="relative rounded-xl overflow-hidden border-2 border-dashed border-slate-300 bg-slate-50 aspect-square flex flex-col items-center justify-center cursor-pointer hover:bg-slate-100 transition-colors"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="w-6 h-6 text-slate-400 mb-2" />
-                  <span className="text-xs text-slate-500 font-medium">Add More</span>
-                </div>
-              </div>
-              <div className="mt-auto pt-4 border-t border-slate-100">
-                <button
-                  onClick={processImage}
-                  disabled={loading}
-                  className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 text-white rounded-xl font-bold transition-colors shadow-sm flex items-center justify-center gap-2"
-                >
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
-                  {loading ? 'Analyzing Images...' : `Extract Data (${images.length} images)`}
+                <button onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center gap-2 hover:bg-slate-50 transition-colors">
+                  <PlusIcon className="w-6 h-6 text-slate-400" />
+                  <span className="text-xs font-medium text-slate-500">添加更多</span>
                 </button>
               </div>
-            </div>
-          ) : (
-            <div 
-              className="w-full h-full flex-1 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center p-8 text-center hover:bg-slate-50 transition-colors cursor-pointer"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4">
-                <Upload className="w-8 h-8" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-1">Upload Receipt Photos</h3>
-              <p className="text-sm text-slate-500 mb-6">Click or drag and drop images here. You can upload multiple receipts.</p>
-              <button className="px-6 py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors">
-                Select Files
+              <button onClick={processImage} disabled={loading} className="mt-auto w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-emerald-100 disabled:opacity-50">
+                {loading ? <Loader2 className="animate-spin" /> : <Camera className="w-5 h-5" />}
+                {loading ? 'AI 正在深度解析...' : `开始解析 (${images.length} 张小票)`}
               </button>
             </div>
+          ) : (
+            <div onClick={() => fileInputRef.current?.click()} className="flex-1 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center p-10 cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/30 transition-all">
+              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4"><Upload className="w-10 h-10" /></div>
+              <h3 className="text-lg font-bold text-slate-900">上传小票照片</h3>
+              <p className="text-sm text-slate-500 text-center mt-2">支持多张上传，系统将自动合并数据</p>
+            </div>
           )}
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleImageUpload} 
-            accept="image/*" 
-            multiple
-            className="hidden" 
-          />
+          <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" multiple className="hidden" />
         </div>
 
-        {/* Results Section */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-[400px]">
-          <h3 className="text-lg font-bold text-slate-900 mb-4">Extracted Data</h3>
-          
-          {error && (
-            <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3 text-red-700 mb-4">
-              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              <p className="text-sm">{error}</p>
-            </div>
-          )}
+        {/* 右侧：结果确认区 */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-[450px]">
+          <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 text-emerald-500" /> 解析结果确认
+          </h3>
 
-          {!result && !error && !loading && (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-              <CheckCircle className="w-12 h-12 mb-2 opacity-20" />
-              <p>Data will appear here after extraction</p>
-            </div>
-          )}
+          {error && <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-700 text-sm mb-4 flex gap-2"><AlertCircle className="shrink-0 w-5 h-5"/>{error}</div>}
 
-          {loading && (
-            <div className="flex-1 flex flex-col items-center justify-center text-emerald-500">
-              <Loader2 className="w-10 h-10 animate-spin mb-4" />
-              <p className="font-medium">Gemini is analyzing the receipts...</p>
+          {!result && !loading && (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 italic">
+              <p>等待解析数据...</p>
             </div>
           )}
 
           {result && (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="mb-4 flex items-center gap-2">
-                <span className="text-sm font-medium text-slate-500">Sale Date:</span>
-                <span className="text-sm font-bold text-slate-900">{result.saleDate || 'Not found'}</span>
+            <div className="flex-1 flex flex-col h-full">
+              <div className="mb-4 p-3 bg-slate-50 rounded-lg flex justify-between items-center text-sm">
+                <span className="text-slate-500">识别日期: <b className="text-slate-900">{result.saleDate || '未识别'}</b></span>
               </div>
               
-              <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-                {result.items.map((item, index) => (
-                  <div key={index} className="p-4 bg-slate-50 border border-slate-100 rounded-xl space-y-3">
+              <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                {result.items.map((item, idx) => (
+                  <div key={idx} className="p-4 bg-white border border-slate-100 rounded-xl shadow-sm space-y-3">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-bold text-slate-900">{item.productName}</p>
-                        <p className="text-sm text-slate-500">{item.quantity} x ${Number(item.unitPrice || 0).toFixed(2)}</p>
+                        <h4 className="font-bold text-slate-900">{item.productName}</h4>
+                        <p className="text-xs text-slate-500">{item.quantity} 件 × ￥{item.unitPrice.toFixed(2)}</p>
                       </div>
-                      <p className="font-bold text-emerald-600">${Number(item.totalAmount || 0).toFixed(2)}</p>
+                      <span className="font-black text-emerald-600 text-lg">￥{item.totalAmount.toFixed(2)}</span>
                     </div>
-                    
+
                     {item.hasMathDiscrepancy && (
-                      <div className="text-xs text-amber-600 flex items-start gap-1.5 bg-amber-50 p-2 rounded-lg border border-amber-100">
-                        <AlertCircle className="w-4 h-4 shrink-0" />
-                        <span>金额异常：单价×数量不等于总金额。已优先采用总金额计算。</span>
+                      <div className="text-[10px] bg-amber-50 text-amber-700 p-2 rounded border border-amber-100 flex gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0" /> 金额已按总价自动校正
                       </div>
                     )}
-                    
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Match with Inventory</label>
-                      <select 
-                        value={item.matchedProductId || ''}
-                        onChange={(e) => handleMatchChange(index, e.target.value)}
-                        className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white"
-                      >
-                        <option value="CREATE_NEW">[+] 新商品待分类 (Create New)</option>
-                        <option value="">-- Ignore / Do not record --</option>
+
+                    <select 
+                      value={item.matchedProductId}
+                      onChange={(e) => {
+                        const n = [...result.items]; n[idx].matchedProductId = e.target.value;
+                        setResult({...result, items: n});
+                      }}
+                      className="w-full p-2 text-xs border rounded-lg bg-slate-50 focus:bg-white transition-colors outline-none"
+                    >
+                      <option value="CREATE_NEW">✨ 存为新商品 (Auto Create)</option>
+                      <option value="">🚫 忽略此行 (Ignore)</option>
+                      <optgroup label="匹配现有库存">
                         {products.map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({p.stock} in stock)
-                          </option>
+                          <option key={p.id} value={p.id}>{p.name} (库存: {p.stock})</option>
                         ))}
-                      </select>
-                    </div>
+                      </optgroup>
+                    </select>
                   </div>
                 ))}
               </div>
 
-              <div className="mt-6 pt-4 border-t border-slate-100">
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Salesperson</label>
-                  <input
-                    type="text"
-                    value={salesperson}
-                    onChange={(e) => setSalesperson(e.target.value)}
-                    className="w-full p-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
-                  />
-                </div>
-                <button
-                  onClick={handleSave}
-                  disabled={!result.items.some(i => i.matchedProductId)}
-                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-xl font-bold transition-colors shadow-sm flex items-center justify-center gap-2"
-                >
-                  <Save className="w-5 h-5" />
-                  Record Selected Items
+              <div className="mt-6 pt-4 border-t border-slate-100 space-y-4">
+                <input 
+                  type="text" value={salesperson} 
+                  onChange={e => setSalesperson(e.target.value)}
+                  placeholder="销售人员姓名"
+                  className="w-full p-3 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <button onClick={handleSave} disabled={loading || !result.items.some(i => i.matchedProductId)} className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold flex items-center justify-center gap-2">
+                  <Save className="w-5 h-5" /> 确认入库销售
                 </button>
               </div>
             </div>
@@ -396,4 +297,8 @@ export function ReceiptScanner({ store }: { store: ReturnType<typeof useStore> }
       </div>
     </div>
   );
+}
+
+function PlusIcon({ className }: { className?: string }) {
+  return <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>;
 }
