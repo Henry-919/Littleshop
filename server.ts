@@ -89,6 +89,10 @@ async function startServer() {
         });
       } catch (err: any) {
         console.warn('[API] gemini-2.0-flash failed, falling back to gemini-1.5-flash...', err.message);
+        // If rate limited or model not available, surface that clearly
+        if (err && err.message && err.message.toLowerCase().includes('rate')) {
+          return res.status(429).json({ error: 'rate_limited', details: err.message });
+        }
         response = await ai.models.generateContent({
           model: "gemini-1.5-flash",
           contents: [{
@@ -119,12 +123,29 @@ async function startServer() {
       }
 
       const text = response.text;
-      console.log('[API] Gemini response received');
+      const status = response?.status || 'unknown';
+      const headers = response?.headers || {};
+      console.log('[API] Gemini response received', { status });
       if (!text) {
         throw new Error("No response from AI");
       }
 
-      res.json(JSON.parse(text));
+      // 尝试解析为 JSON；若非 JSON（例如 HTML 错误页），记录并返回可读错误
+      try {
+        const parsed = JSON.parse(text);
+        return res.json(parsed);
+      } catch (parseErr) {
+        console.error('[API] Failed to parse AI response as JSON. Status:', status, 'Headers:', headers);
+        console.error('[API] Response snippet:', text.slice(0, 800));
+        // 如果是明显的限流/未找到模型，返回相应状态
+        if (text.toLowerCase().includes('not_found') || text.toLowerCase().includes('not found')) {
+          return res.status(502).json({ error: 'model_not_found', rawResponseSnippet: text.slice(0, 1000) });
+        }
+        if (text.toLowerCase().includes('not allowed') || text.toLowerCase().includes('permission')) {
+          return res.status(502).json({ error: 'permission_denied', rawResponseSnippet: text.slice(0, 1000) });
+        }
+        return res.status(502).json({ error: 'AI returned invalid JSON', rawResponseSnippet: text.slice(0, 1000) });
+      }
     } catch (error: any) {
       console.error('[API] Error:', error);
       res.status(500).json({ error: 'AI 识别失败', details: error.message });

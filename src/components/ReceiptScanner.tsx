@@ -81,20 +81,67 @@ export function ReceiptScanner({ store }: { store: any }) {
     setError(null);
     try {
       // 使用 Promise.all 并发处理所有图片，提速显著
+      // 控制并发数并实现重试与超时
+      const MAX_CONCURRENCY = 2;
+      const RETRY_ATTEMPTS = 3;
+      const TIMEOUT_MS = 60000;
+
+      const semaphore = { count: 0 };
+      const runWithConcurrency = async (fn: () => Promise<any>) => {
+        while (semaphore.count >= MAX_CONCURRENCY) {
+          await new Promise(r => setTimeout(r, 100));
+        }
+        semaphore.count++;
+        try {
+          return await fn();
+        } finally {
+          semaphore.count--;
+        }
+      };
+
+      const fetchWithRetryAndTimeout = async (compressedBase64: string) => {
+        let attempt = 0;
+        while (attempt < RETRY_ATTEMPTS) {
+          attempt++;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+          try {
+            const response = await fetch('/api/analyze', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ base64Data: compressedBase64, mimeType: 'image/jpeg' }),
+              signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (response.status === 429) {
+              // 等待并重试
+              await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
+              continue;
+            }
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+              const text = await response.text();
+              throw new Error(`Server returned non-JSON response: ${text.slice(0,200)}`);
+            }
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'AI 解析失败');
+            return data;
+          } catch (err: any) {
+            clearTimeout(timer);
+            if (err.name === 'AbortError') {
+              // 超时，重试
+              continue;
+            }
+            if (attempt >= RETRY_ATTEMPTS) throw err;
+            await new Promise(r => setTimeout(r, 300 * attempt));
+          }
+        }
+        throw new Error('AI 解析 - 达到重试上限');
+      };
+
       const uploadPromises = images.map(async (img) => {
-        const compressedBase64 = await compressImage(img); 
-        const response = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            base64Data: compressedBase64, 
-            mimeType: "image/jpeg" 
-          }),
-        });
-        
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "AI 解析失败");
-        return data;
+        const compressedBase64 = await compressImage(img);
+        return runWithConcurrency(() => fetchWithRetryAndTimeout(compressedBase64));
       });
 
       const allResults = await Promise.all(uploadPromises);
