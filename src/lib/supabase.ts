@@ -1,13 +1,16 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// 1. 使用安全的变量获取方式
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// 这一段能帮你直接在控制台看到真相
+// 2. 打印状态（仅在开发模式或手动调试时可见）
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("❌ 环境变量丢失！请检查 Vercel 后台配置。")
-} else {
-  console.log("✅ 环境变量已加载，URL 长度:", supabaseUrl.length)
+  console.error("❌ Supabase 凭证丢失。请检查 Vercel 环境变量并重新部署。");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// 3. 创建客户端
+// 即使变量丢失，也要导出一个对象，防止其他组件 import 时直接崩溃
+export const supabase = (supabaseUrl && supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null as any;
