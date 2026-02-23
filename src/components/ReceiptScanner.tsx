@@ -106,7 +106,7 @@ export function ReceiptScanner({ store }: { store: any }) {
       allResults.forEach(data => {
         if (data.saleDate) detectedDate = data.saleDate;
         
-        const matched = data.items.map((item: any) => {
+        const matched = (data.items || []).map((item: any) => {
           let bestMatch = products.find((p: any) => getSimilarity(p.name, item.productName) > 0.7);
           return {
             ...item,

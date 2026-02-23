@@ -31,7 +31,7 @@ export default async function handler(req, res) {
       },
       config: {
         responseMimeType: "application/json",
-        temperature: 0.1
+        temperature: 0.1,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
