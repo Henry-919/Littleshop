@@ -156,11 +156,23 @@ export function ReceiptScanner({ store }: { store: any }) {
   return (
     <div className="p-4 max-w-4xl mx-auto space-y-4">
       {/* 顶部控制栏 */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-        <h2 className="text-xl font-bold flex items-center gap-2">
-          <Camera className="text-emerald-500" /> 手写小票识别
-        </h2>
-        <p className="text-slate-500 text-sm mt-1">上传 WANG YUWU INTERNATIONAL SPC 发票照片</p>
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <Camera className="text-emerald-500" /> 手写小票识别
+          </h2>
+          <p className="text-slate-500 text-sm mt-1">上传 WANG YUWU INTERNATIONAL SPC 发票照片</p>
+        </div>
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <span className="text-sm font-medium text-slate-500 shrink-0">销售员:</span>
+          <input 
+            type="text" 
+            value={salesperson} 
+            onChange={(e) => setSalesperson(e.target.value)}
+            placeholder="输入销售员姓名"
+            className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 w-full md:w-32"
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

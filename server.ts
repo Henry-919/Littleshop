@@ -23,8 +23,13 @@ async function startServer() {
 
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        console.error('[API] GEMINI_API_KEY is missing');
+        console.error('[API] GEMINI_API_KEY is missing from environment');
         return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
+      }
+
+      // Basic sanity check for API key (don't log the full key)
+      if (apiKey.length < 10) {
+        console.error('[API] GEMINI_API_KEY appears to be too short or invalid');
       }
 
       const ai = new GoogleGenAI({ apiKey });
@@ -51,34 +56,67 @@ async function startServer() {
         required: ["items"]
       };
 
-      console.log('[API] Calling Gemini 2.0 Flash...');
-      const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash-exp",
-        contents: {
-          parts: [
-            {
-              text: `你是一个专业的财务 OCR。任务:提取手写发票信息。
+      console.log('[API] Calling Gemini AI...');
+      let response;
+      try {
+        console.log('[API] Attempting with gemini-2.0-flash...');
+        response = await ai.models.generateContent({
+          model: "gemini-2.0-flash",
+          contents: [{
+            parts: [
+              {
+                text: `你是一个专业的财务 OCR。任务:提取手写发票信息。
 抬头关键词:WANG YUWU INTERNATIONAL SPC。
 注意：
 1. DESCRIPTION 栏手写内容作为 productName。
 2. 识别 QTY, RATE, AMOUNT。
 3. 日期格式 YYYY-MM-DD。
 4. 必须通过 (数量 * 单价 = 总额) 校验，不符时以图片金额为准。`
-            },
-            {
-              inlineData: {
-                data: base64Data.replace(/^data:image\/\w+;base64,/, ""),
-                mimeType: mimeType || "image/jpeg"
+              },
+              {
+                inlineData: {
+                  data: base64Data.replace(/^data:image\/\w+;base64,/, ""),
+                  mimeType: mimeType || "image/jpeg"
+                }
               }
-            }
-          ]
-        },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: schema,
-          temperature: 0.1,
-        },
-      });
+            ]
+          }],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            temperature: 0.1,
+          },
+        });
+      } catch (err: any) {
+        console.warn('[API] gemini-2.0-flash failed, falling back to gemini-1.5-flash...', err.message);
+        response = await ai.models.generateContent({
+          model: "gemini-1.5-flash",
+          contents: [{
+            parts: [
+              {
+                text: `你是一个专业的财务 OCR。任务:提取手写发票信息。
+抬头关键词:WANG YUWU INTERNATIONAL SPC。
+注意：
+1. DESCRIPTION 栏手写内容作为 productName。
+2. 识别 QTY, RATE, AMOUNT。
+3. 日期格式 YYYY-MM-DD。
+4. 必须通过 (数量 * 单价 = 总额) 校验，不符时以图片金额为准。`
+              },
+              {
+                inlineData: {
+                  data: base64Data.replace(/^data:image\/\w+;base64,/, ""),
+                  mimeType: mimeType || "image/jpeg"
+                }
+              }
+            ]
+          }],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            temperature: 0.1,
+          },
+        });
+      }
 
       const text = response.text;
       console.log('[API] Gemini response received');
