@@ -1,3 +1,4 @@
+console.log("--- Supabase 文件开始加载 ---");
 import { createClient } from '@supabase/supabase-js';
 
 // 1. 获取变量
