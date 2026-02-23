@@ -150,12 +150,37 @@ async function startServer() {
   });
 
   // Mock analytics endpoint if needed
-  app.get('/api/analytics', (req, res) => {
-    res.json({
-      bestSellers: [{ name: "示例商品", total_sold: 10 }],
-      lowStock: [],
-      dailySales: [{ date: "2023-10-01", revenue: 100 }]
-    });
+  app.get('/api/analytics', async (req, res) => {
+    try {
+      // In a real app, you would fetch this from your database (e.g., Supabase)
+      // For now, we'll return mock data that matches the expected structure
+      res.json({
+        bestSellers: [
+          { name: "办公A4纸", total_sold: 150 },
+          { name: "黑色中性笔", total_sold: 120 },
+          { name: "订书机", total_sold: 85 },
+          { name: "文件夹", total_sold: 60 },
+          { name: "便签本", total_sold: 45 }
+        ],
+        lowStock: [
+          { id: "1", name: "打印机墨盒", category: "办公耗材", stock: 2 },
+          { id: "2", name: "白板笔", category: "文具", stock: 0 },
+          { id: "3", name: "透明胶带", category: "文具", stock: 5 }
+        ],
+        dailySales: [
+          { date: "10-01", revenue: 1200 },
+          { date: "10-02", revenue: 1500 },
+          { date: "10-03", revenue: 900 },
+          { date: "10-04", revenue: 2100 },
+          { date: "10-05", revenue: 1800 },
+          { date: "10-06", revenue: 2400 },
+          { date: "10-07", revenue: 3000 }
+        ]
+      });
+    } catch (error) {
+      console.error('[API] Analytics Error:', error);
+      res.status(500).json({ error: 'Failed to fetch analytics data' });
+    }
   });
 
   // Vite middleware for development
