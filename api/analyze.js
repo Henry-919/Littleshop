@@ -7,14 +7,14 @@ export default async function handler(req, res) {
     const { base64Data, mimeType } = req.body;
     if (!base64Data) return res.status(400).json({ error: '请上传图片' });
 
+    // 初始化最新 SDK
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     
-    // 使用 flash 模型，性能好且支持强约束 JSON 输出
+    // 使用目前最先进的 2.0 模型
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.0-flash", 
       generationConfig: {
         responseMimeType: "application/json",
-        temperature: 0.1, // 低温度值提高准确度
         responseSchema: {
           type: SchemaType.OBJECT,
           properties: {
@@ -38,33 +38,27 @@ export default async function handler(req, res) {
       }
     });
 
-    const prompt = `你是一个专业的财务 OCR 助手。
-任务：识别抬头为 "WANG YUWU INTERNATIONAL SPC" 的手写发票。
-特征：包含英语、阿拉伯语、手写体数字。
+    const prompt = `你是一个专业的财务 OCR。任务：提取手写发票信息。
+抬头关键词：WANG YUWU INTERNATIONAL SPC。
+注意：
+1. DESCRIPTION 栏手写内容作为 productName。
+2. 识别 QTY (数量), RATE (单价), AMOUNT (总额)。
+3. 识别 Date (日期) 为 YYYY-MM-DD。
+4. 必须通过 (数量 * 单价 = 总额) 校验，如不符以图片上的总额为准。`;
 
-提取规则：
-1. 寻找 'Date' 后面的手写日期，输出格式 YYYY-MM-DD。
-2. 'DESCRIPTION' 栏手写内容作为 productName。
-3. 'QTY' 为数量, 'RATE' 为单价, 'AMOUNT' 为总额。
-4. 如果手写字迹无法确认，请在 error 字段描述原因。
-注意：严格返回 JSON，不要包含任何解释文字。`;
+    // 自动清洗可能携带的 Base64 前缀
+    const pureBase64 = base64Data.replace(/^data:image\/\w+;base64,/, "");
 
     const result = await model.generateContent([
-      prompt,
-      { inlineData: { data: base64Data, mimeType: mimeType || "image/jpeg" } }
+      { inlineData: { data: pureBase64, mimeType: mimeType || "image/jpeg" } },
+      prompt
     ]);
 
-    const response = await result.response;
-    let text = response.text();
-    
-    // 清洗：防止 AI 返回 ```json ... ``` 这种 Markdown 格式
-    const cleanJson = text.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(cleanJson);
-
-    return res.status(200).json(parsed);
+    const text = result.response.text();
+    return res.status(200).json(JSON.parse(text));
 
   } catch (error) {
-    console.error('OCR Server Error:', error);
+    console.error('API Error:', error);
     return res.status(500).json({ error: 'AI 识别失败', details: error.message });
   }
 }
