@@ -1,5 +1,9 @@
-const fs = require('fs').promises;
-const path = require('path');
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const API_URL = process.env.ANALYZE_URL || 'http://localhost:3000/api/analyze';
 const IMAGES_DIR = path.join(__dirname, '..', 'test_images');
