@@ -14,11 +14,6 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      // 这里的注入是为了让前端也能通过 process.env 访问 Key
-      // 但请注意：生产环境下建议通过后端 API 转发，避免 Key 暴露在 JS 包中
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'), // 建议指向 src 目录
@@ -27,13 +22,6 @@ export default defineConfig(({ mode }) => {
     server: {
       // 保持你原有的 HMR 逻辑
       hmr: process.env.DISABLE_HMR !== 'true',
-      // 如果你在本地开发，可以增加 proxy 方便调试后端
-      proxy: {
-        '/api': {
-          target: 'http://localhost:3001',
-          changeOrigin: true,
-        }
-      }
     },
     // 强制包含 tailwindcss 处理
     optimizeDeps: {
