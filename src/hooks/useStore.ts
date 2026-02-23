@@ -163,7 +163,7 @@ export function useStore() {
     return true;
   };
 
-  const processReceiptSales = async (
+const processReceiptSales = async (
     items: { productId: string; productName: string; price: number; quantity: number; totalAmount: number }[],
     salesperson: string,
     date: string
@@ -171,10 +171,13 @@ export function useStore() {
     if (!supabase) return items.map(i => i.productName);
     
     let failedItems: string[] = [];
+    // 创建一个本地副本用于在循环中实时计算
+    let currentLocalProducts = [...products];
     
     for (const item of items) {
       let pid = item.productId;
       
+      // 1. 处理新商品创建
       if (pid === 'CREATE_NEW') {
         const { data: newProd, error: prodError } = await supabase.from('products').insert([{
           name: `[新商品待分类] ${item.productName}`,
@@ -188,23 +191,30 @@ export function useStore() {
           continue;
         }
         pid = newProd.id;
-        setProducts(prev => [...prev, newProd]);
+        currentLocalProducts.push(newProd); // 更新局部副本
       }
 
-      const product = products.find(p => p.id === pid) || (pid !== 'CREATE_NEW' ? null : undefined);
-      
-      const isNew = product?.name.startsWith('[新商品待分类]') || pid === 'CREATE_NEW';
-      if (!isNew && product && product.stock < item.quantity) {
+      // 2. 从【局部副本】中找商品，确保库存计算是连续的
+      const productIndex = currentLocalProducts.findIndex(p => p.id === pid);
+      const product = currentLocalProducts[productIndex];
+
+      if (!product) {
         failedItems.push(item.productName);
         continue;
       }
 
-      const currentStock = product ? product.stock : 0;
-      const newStock = currentStock - item.quantity;
+      const newStock = product.stock - item.quantity;
 
-      await supabase.from('products').update({ stock: newStock }).eq('id', pid);
+      // 3. 执行更新（务必检查结果）
+      const { error: updateError } = await supabase.from('products').update({ stock: newStock }).eq('id', pid);
+      if (updateError) {
+        console.error("Stock update failed", updateError);
+        failedItems.push(item.productName);
+        continue; 
+      }
       
-      const { data: saleData } = await supabase.from('sales').insert([{
+      // 4. 插入销售记录
+      const { data: saleData, error: saleError } = await supabase.from('sales').insert([{
         product_id: pid,
         quantity: item.quantity,
         total_amount: item.totalAmount,
@@ -212,16 +222,27 @@ export function useStore() {
         date
       }]).select().single();
 
+      if (saleError) {
+        console.error("Sale insert failed", saleError);
+        failedItems.push(item.productName);
+        continue;
+      }
+
+      // 5. 更新局部副本，供下一个循环使用
+      currentLocalProducts[productIndex] = { ...product, stock: newStock };
+
+      // 6. 同步到全局状态（建议放在循环外，或分步更新）
+      setProducts([...currentLocalProducts]);
       if (saleData) {
-        setProducts(prev => prev.map(p => p.id === pid ? { ...p, stock: newStock } : p));
-        setSales(prev => [{
+        const newSale: Sale = {
           id: saleData.id,
           productId: saleData.product_id,
           quantity: saleData.quantity,
           totalAmount: saleData.total_amount,
           salesperson: saleData.salesperson,
           date: saleData.date
-        }, ...prev]);
+        };
+        setSales(prev => [newSale, ...prev]);
       }
     }
 
