@@ -1,0 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Mobile UX Optimizations */
+body {
+  -webkit-touch-callout: none; /* Disable long-press popup */
+  -webkit-user-select: none; /* Disable text selection */
+  user-select: none;
+  touch-action: manipulation; /* Disable double-tap zoom */
+  overscroll-behavior-y: none; /* Prevent pull-to-refresh */
+}
+
+/* Allow text selection in inputs, textareas, and selects */
+input, textarea, select {
+  -webkit-user-select: auto;
+  user-select: auto;
+}
+
+/* Smooth scrolling and momentum for all scrollable containers */
+.overflow-y-auto, .overflow-x-auto, .overflow-auto {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
