@@ -46,12 +46,12 @@ export function useStore() {
       if (catRes.data) setCategories(catRes.data);
       if (prodRes.data) setProducts(prodRes.data);
       if (saleRes.data) {
-        // 映射数据库字段 total_price 到本地 Sale 接口
+        // 映射数据库字段 total_amount 到本地 Sale 接口
         const mappedSales: Sale[] = saleRes.data.map(s => ({
           id: s.id,
           productId: s.product_id,
           quantity: s.quantity,
-          totalAmount: s.total_price, 
+          totalAmount: s.total_amount, 
           salesperson: s.salesperson,
           date: s.date
         }));
@@ -101,6 +101,21 @@ export function useStore() {
     return true;
   };
 
+  const deleteSale = async (id: string, productId: string, quantity: number) => {
+    const { error: saleError } = await supabase.from('sales').delete().eq('id', id);
+    if (saleError) return false;
+
+    const product = products.find(p => p.id === productId);
+    if (product) {
+      const newStock = product.stock + quantity;
+      await supabase.from('products').update({ stock: newStock }).eq('id', productId);
+      setProducts(prev => prev.map(p => p.id === productId ? { ...p, stock: newStock } : p));
+    }
+
+    setSales(prev => prev.filter(s => s.id !== id));
+    return true;
+  };
+
   // 单次销售逻辑
   const addSale = async (productId: string, quantity: number, salesperson: string, date?: string) => {
     const product = products.find(p => p.id === productId);
@@ -114,11 +129,11 @@ export function useStore() {
       // 1. 更新库存
       await supabase.from('products').update({ stock: newStock }).eq('id', productId);
       
-      // 2. 插入销售记录 (使用 total_price)
+      // 2. 插入销售记录 (使用 total_amount)
       const { data: saleData, error: saleError } = await supabase.from('sales').insert([{
         product_id: productId,
         quantity,
-        total_price: totalAmount,
+        total_amount: totalAmount,
         salesperson,
         date: saleDate
       }]).select().single();
@@ -131,7 +146,7 @@ export function useStore() {
         id: saleData.id,
         productId: saleData.product_id,
         quantity: saleData.quantity,
-        totalAmount: saleData.total_price,
+        totalAmount: saleData.total_amount,
         salesperson: saleData.salesperson,
         date: saleData.date
       }, ...prev]);
@@ -160,6 +175,7 @@ export function useStore() {
         const { data: newProd, error } = await supabase.from('products').insert([{
           name: `[新商品待分类] ${item.productName}`,
           price: item.price,
+          cost_price: 0,
           stock: 0
         }]).select().single();
         if (error) { failedItems.push(item.productName); continue; }
@@ -178,7 +194,7 @@ export function useStore() {
       const { data: saleData, error: saleErr } = await supabase.from('sales').insert([{
         product_id: pid,
         quantity: item.quantity,
-        total_price: item.totalAmount,
+        total_amount: item.totalAmount,
         salesperson,
         date
       }]).select().single();
@@ -196,7 +212,7 @@ export function useStore() {
           id: saleData.id,
           productId: saleData.product_id,
           quantity: saleData.quantity,
-          totalAmount: saleData.total_price,
+          totalAmount: saleData.total_amount,
           salesperson: saleData.salesperson,
           date: saleData.date
         }, ...prev]);
@@ -218,6 +234,7 @@ export function useStore() {
 
       const catName = row['类目'];
       const price = parseFloat(row['销售价'] || '0');
+      const cost = parseFloat(row['成本价'] || '0');
       const stock = parseInt(row['库存数量'] || '0', 10);
       onProgress(`正在处理 ${i + 1}/${rows.length}: ${name}`);
 
@@ -237,12 +254,12 @@ export function useStore() {
       if (prod) {
         const newStock = prod.stock + stock;
         const { data } = await supabase.from('products')
-          .update({ stock: newStock, price, category_id: catId })
+          .update({ stock: newStock, price, cost_price: cost, category_id: catId })
           .eq('id', prod.id).select().single();
         if (data) currentProds = currentProds.map(p => p.id === prod.id ? data : p);
       } else {
         const { data } = await supabase.from('products')
-          .insert([{ name, price, stock, category_id: catId }]).select().single();
+          .insert([{ name, price, cost_price: cost, stock, category_id: catId }]).select().single();
         if (data) currentProds.push(data);
       }
       successCount++;
@@ -256,6 +273,6 @@ export function useStore() {
   return { 
     products, sales, categories, loading, fetchData,
     addSale, processReceiptSales, addCategory, deleteCategory,
-    addProduct, deleteProduct, processExcelImport 
+    addProduct, deleteProduct, deleteSale, processExcelImport 
   };
 }
