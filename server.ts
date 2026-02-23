@@ -19,8 +19,11 @@ async function startServer() {
         return res.status(400).json({ error: '请上传图片' });
       }
 
+      console.log(`[API] Received analyze request. Image size: ${base64Data.length} chars`);
+
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
+        console.error('[API] GEMINI_API_KEY is missing');
         return res.status(500).json({ error: 'GEMINI_API_KEY is not configured' });
       }
 
@@ -44,32 +47,32 @@ async function startServer() {
           },
           saleDate: { type: Type.STRING },
           error: { type: Type.STRING }
-        }
+        },
+        required: ["items"]
       };
 
+      console.log('[API] Calling Gemini 2.0 Flash...');
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
-        contents: [
-          {
-            parts: [
-              {
-                text: `你是一个专业的财务 OCR。任务:提取手写发票信息。
+        model: "gemini-2.0-flash-exp",
+        contents: {
+          parts: [
+            {
+              text: `你是一个专业的财务 OCR。任务:提取手写发票信息。
 抬头关键词:WANG YUWU INTERNATIONAL SPC。
 注意：
 1. DESCRIPTION 栏手写内容作为 productName。
 2. 识别 QTY, RATE, AMOUNT。
 3. 日期格式 YYYY-MM-DD。
 4. 必须通过 (数量 * 单价 = 总额) 校验，不符时以图片金额为准。`
-              },
-              {
-                inlineData: {
-                  data: base64Data.replace(/^data:image\/\w+;base64,/, ""),
-                  mimeType: mimeType || "image/jpeg"
-                }
+            },
+            {
+              inlineData: {
+                data: base64Data.replace(/^data:image\/\w+;base64,/, ""),
+                mimeType: mimeType || "image/jpeg"
               }
-            ]
-          }
-        ],
+            }
+          ]
+        },
         config: {
           responseMimeType: "application/json",
           responseSchema: schema,
@@ -78,13 +81,14 @@ async function startServer() {
       });
 
       const text = response.text;
+      console.log('[API] Gemini response received');
       if (!text) {
         throw new Error("No response from AI");
       }
 
       res.json(JSON.parse(text));
     } catch (error: any) {
-      console.error('API Error:', error);
+      console.error('[API] Error:', error);
       res.status(500).json({ error: 'AI 识别失败', details: error.message });
     }
   });
