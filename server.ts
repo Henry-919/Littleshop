@@ -58,10 +58,19 @@ async function startServer() {
 
       console.log('[API] Calling Gemini AI...');
       let response;
-      try {
-        console.log('[API] Attempting with gemini3flash...');
-        response = await ai.models.generateContent({
-          model: "gemini3flash",
+      // Try a list of preferred models in order of preference
+      const preferredModels = [
+        'gemini-flash-latest',
+        'gemini-2.5-flash',
+        'gemini-2.0-flash'
+      ];
+
+      let lastError: any = null;
+      for (const modelName of preferredModels) {
+        try {
+          console.log(`[API] Attempting model: ${modelName}`);
+          response = await ai.models.generateContent({
+            model: modelName,
           contents: [{
             parts: [
               {
@@ -87,39 +96,27 @@ async function startServer() {
             temperature: 0.1,
           },
         });
-      } catch (err: any) {
-        console.warn('[API] gemini3flash failed, falling back to gemini-2.0-flash...', err.message);
-        // If rate limited or model not available, surface that clearly
-        if (err && err.message && err.message.toLowerCase().includes('rate')) {
-          return res.status(429).json({ error: 'rate_limited', details: err.message });
+          // If we got a response, break out
+          if (response) break;
+        } catch (err: any) {
+          lastError = err;
+          console.warn(`[API] model ${modelName} failed:`, err?.message || err);
+          // if it's a 404 for model not found, try next; if rate limited, return immediately
+          const msg = (err?.message || '').toLowerCase();
+          if (msg.includes('rate') || (err?.response && err.response.status === 429)) {
+            return res.status(429).json({ error: 'rate_limited', details: err.message || err });
+          }
+          // otherwise continue to next model
         }
-        response = await ai.models.generateContent({
-          model: "gemini-2.0-flash",
-          contents: [{
-            parts: [
-              {
-                text: `你是一个专业的财务 OCR。任务:提取手写发票信息。
-抬头关键词:WANG YUWU INTERNATIONAL SPC。
-注意：
-1. DESCRIPTION 栏手写内容作为 productName。
-2. 识别 QTY, RATE, AMOUNT。
-3. 日期格式 YYYY-MM-DD。
-4. 必须通过 (数量 * 单价 = 总额) 校验，不符时以图片金额为准。`
-              },
-              {
-                inlineData: {
-                  data: base64Data.replace(/^data:image\/\w+;base64,/, ""),
-                  mimeType: mimeType || "image/jpeg"
-                }
-              }
-            ]
-          }],
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: schema,
-            temperature: 0.1,
-          },
-        });
+      }
+
+      // If no response after trying all models, surface the last error
+      if (!response) {
+        console.error('[API] All preferred models failed', lastError?.message || lastError);
+        if (lastError && lastError.response && lastError.response.status === 404) {
+          return res.status(502).json({ error: 'model_not_found', details: lastError.message });
+        }
+        return res.status(502).json({ error: 'ai_call_failed', details: lastError?.message || 'unknown' });
       }
 
       const text = response.text;
