@@ -10,8 +10,15 @@ const ASSETS_TO_CACHE = [
 // 安装阶段：缓存静态资源
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Try to add each asset individually and ignore failures (missing files)
+      await Promise.allSettled(ASSETS_TO_CACHE.map(async (asset) => {
+        try {
+          await cache.add(asset);
+        } catch (e) {
+          console.warn('[SW] Failed to cache', asset, e && e.message);
+        }
+      }));
     })
   );
   self.skipWaiting();
@@ -26,6 +33,10 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
+  // Take control of uncontrolled clients as soon as the worker activates
+  if (self.clients && self.clients.claim) {
+    self.clients.claim();
+  }
 });
 
 // 策略：网络优先，但排除 AI 接口
