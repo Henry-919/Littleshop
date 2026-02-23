@@ -19,7 +19,7 @@ export interface Sale {
   id: string;
   productId: string;
   quantity: number;
-  totalAmount: number; // 本地 UI 逻辑保持叫 totalAmount
+  totalAmount: number;
   salesperson: string;
   date: string;
 }
@@ -46,7 +46,6 @@ export function useStore() {
       if (catRes.data) setCategories(catRes.data);
       if (prodRes.data) setProducts(prodRes.data);
       if (saleRes.data) {
-        // 映射数据库字段 total_amount 到本地 Sale 接口
         const mappedSales: Sale[] = saleRes.data.map(s => ({
           id: s.id,
           productId: s.product_id,
@@ -116,23 +115,38 @@ export function useStore() {
     return true;
   };
 
-  // 单次销售逻辑
-  const addSale = async (productId: string, quantity: number, salesperson: string, date?: string) => {
-    const product = products.find(p => p.id === productId);
-    if (!product || product.stock < quantity) return false;
+  // 🚀 更新 1：更健壮的单次销售逻辑
+  const addSale = async (productId: string, quantity: number | string, salesperson: string, date?: string) => {
+    // 强制转为数字，防止从 UI 传过来的 input 字符串引发 NaN 错误
+    const qty = Number(quantity);
+    if (isNaN(qty) || qty <= 0) {
+      console.error("售卖失败：数量无效", quantity);
+      return false;
+    }
 
-    const newStock = product.stock - quantity;
-    const totalAmount = product.price * quantity;
+    const product = products.find(p => p.id === productId);
+    
+    // 增加控制台打印，方便调试“点选无反应”
+    if (!product) {
+      console.error("售卖失败：找不到对应商品ID", productId);
+      return false;
+    } 
+    if (product.stock < qty) {
+      console.warn(`售卖失败：库存不足！当前库存: ${product.stock}, 尝试售出: ${qty}`);
+      return false;
+    }
+
+    const newStock = product.stock - qty;
+    const totalAmount = product.price * qty;
     const saleDate = date || new Date().toISOString();
 
     try {
-      // 1. 更新库存
-      await supabase.from('products').update({ stock: newStock }).eq('id', productId);
+      const { error: updateError } = await supabase.from('products').update({ stock: newStock }).eq('id', productId);
+      if (updateError) throw updateError;
       
-      // 2. 插入销售记录 (使用 total_amount)
       const { data: saleData, error: saleError } = await supabase.from('sales').insert([{
         product_id: productId,
-        quantity,
+        quantity: qty,
         total_amount: totalAmount,
         salesperson,
         date: saleDate
@@ -140,7 +154,6 @@ export function useStore() {
 
       if (saleError) throw saleError;
 
-      // 3. 同步状态
       setProducts(prev => prev.map(p => p.id === productId ? { ...p, stock: newStock } : p));
       setSales(prev => [{
         id: saleData.id,
@@ -153,14 +166,15 @@ export function useStore() {
 
       return true;
     } catch (err) {
-      console.error(err);
+      console.error("交易写入失败:", err);
       return false;
     }
   };
 
-  // 发票批量扫描逻辑
+  // 🚀 更新 2：发票扫描支持传递 categoryId，且去除了丑陋的前缀
   const processReceiptSales = async (
-    items: { productId: string; productName: string; price: number; quantity: number; totalAmount: number }[],
+    // 新增了可选的 categoryId 属性
+    items: { productId: string; productName: string; price: number; quantity: number; totalAmount: number; categoryId?: string }[],
     salesperson: string,
     date: string
   ) => {
@@ -169,16 +183,22 @@ export function useStore() {
 
     for (const item of items) {
       let pid = item.productId;
+      const qty = Number(item.quantity);
 
-      // 处理新商品创建
       if (pid === 'CREATE_NEW') {
         const { data: newProd, error } = await supabase.from('products').insert([{
-          name: `[新商品待分类] ${item.productName}`,
+          name: item.productName, // 去掉前缀，因为可以设置分类了
           price: item.price,
           cost_price: 0,
-          stock: 0
+          stock: 0,
+          category_id: item.categoryId || null // 👈 支持存入分类
         }]).select().single();
-        if (error) { failedItems.push(item.productName); continue; }
+        
+        if (error) { 
+          console.error("创建新商品失败:", error);
+          failedItems.push(item.productName); 
+          continue; 
+        }
         pid = newProd.id;
         currentLocalProducts.push(newProd);
       }
@@ -187,24 +207,23 @@ export function useStore() {
       const product = currentLocalProducts[productIndex];
       if (!product) { failedItems.push(item.productName); continue; }
 
-      const newStock = product.stock - item.quantity;
+      const newStock = product.stock - qty;
 
-      // 执行数据库操作
       const { error: sErr } = await supabase.from('products').update({ stock: newStock }).eq('id', pid);
       const { data: saleData, error: saleErr } = await supabase.from('sales').insert([{
         product_id: pid,
-        quantity: item.quantity,
+        quantity: qty,
         total_amount: item.totalAmount,
         salesperson,
         date
       }]).select().single();
 
       if (sErr || saleErr) {
+        console.error("更新库存或写入记录失败:", sErr || saleErr);
         failedItems.push(item.productName);
         continue;
       }
 
-      // 更新副本并同步
       currentLocalProducts[productIndex] = { ...product, stock: newStock };
       setProducts([...currentLocalProducts]);
       if (saleData) {
@@ -221,7 +240,6 @@ export function useStore() {
     return failedItems;
   };
 
-  // Excel 导入逻辑 (支持累加库存)
   const processExcelImport = async (rows: any[], onProgress: (msg: string) => void) => {
     let currentCats = [...categories];
     let currentProds = [...products];
@@ -238,7 +256,6 @@ export function useStore() {
       const stock = parseInt(row['库存数量'] || '0', 10);
       onProgress(`正在处理 ${i + 1}/${rows.length}: ${name}`);
 
-      // 处理分类
       let catId = null;
       if (catName) {
         let cat = currentCats.find(c => c.name === catName);
@@ -249,7 +266,6 @@ export function useStore() {
         catId = cat?.id || null;
       }
 
-      // 处理商品累加逻辑
       let prod = currentProds.find(p => p.name === name);
       if (prod) {
         const newStock = prod.stock + stock;
