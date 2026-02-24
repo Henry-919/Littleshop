@@ -180,6 +180,10 @@ export function useStore(storeId?: string) {
 
   const processExcelImport = async (rows: any[], onProgress: (msg: string) => void) => {
     let successCount = 0;
+    
+    // 预先获取最新的分类列表，避免在循环中频繁查询
+    let currentCategories = [...categories];
+
     for (const row of rows) {
       const name = row['商品名称'];
       if (!name) continue;
@@ -187,13 +191,38 @@ export function useStore(storeId?: string) {
 
       const price = parseFloat(row['销售价'] || '0');
       const stock = parseInt(row['库存数量'] || '0', 10);
+      const cost_price = parseFloat(row['成本价'] || '0');
+      const categoryName = row['类目'];
+
+      let category_id = undefined;
+
+      // 处理分类
+      if (categoryName) {
+        const existingCategory = currentCategories.find(c => c.name === categoryName);
+        if (existingCategory) {
+          category_id = existingCategory.id;
+        } else if (storeId) {
+          // 如果分类不存在，则创建新分类
+          const { data: newCategory, error } = await supabase
+            .from('categories')
+            .insert([{ name: categoryName, store_id: storeId }])
+            .select()
+            .single();
+            
+          if (!error && newCategory) {
+            category_id = newCategory.id;
+            currentCategories.push(newCategory); // 更新本地缓存
+            setCategories(prev => [...prev, newCategory]); // 更新状态
+          }
+        }
+      }
 
       // 修改逻辑：如果存在则覆盖库存数量
       const existing = products.find(p => p.name === name);
       if (existing) {
-        await updateProduct(existing.id, { stock, price });
+        await updateProduct(existing.id, { stock, price, cost_price, category_id });
       } else {
-        await addProduct({ name, price, stock, cost_price: parseFloat(row['成本价'] || '0') });
+        await addProduct({ name, price, stock, cost_price, category_id });
       }
       successCount++;
     }
