@@ -36,9 +36,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     const [salesRes, productsRes, categoriesRes] = await Promise.all([
-      supabase.from('sales').select('product_id, quantity, total_amount, date').eq('store_id', storeId),
-      supabase.from('products').select('id, name, stock, price, category_id').eq('store_id', storeId),
-      supabase.from('categories').select('id, name, low_stock_threshold').eq('store_id', storeId)
+      supabase.from('sales').select('product_id, quantity, total_amount, date').eq('store_id', storeId).is('deleted_at', null),
+      supabase.from('products').select('id, name, stock, price, category_id').eq('store_id', storeId).is('deleted_at', null),
+      supabase.from('categories').select('id, name, low_stock_threshold').eq('store_id', storeId).is('deleted_at', null)
     ]);
 
     if (salesRes.error || productsRes.error || categoriesRes.error) {

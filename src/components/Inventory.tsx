@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../hooks/useStore';
+import { supabase } from '../lib/supabase';
 import { 
   Layers, Search, ScanLine, Plus, Edit2, Trash2, Check, RotateCcw, X, AlertTriangle 
 } from 'lucide-react';
 import { ExcelImporter } from './ExcelImporter';
 import { ReceiptScanner } from './ReceiptScanner';
 
-export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
+export function Inventory({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   // 1. 防御性数据获取
   const products = store?.products || [];
   const categories = store?.categories || [];
@@ -28,6 +29,24 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
   const [inboundEnd, setInboundEnd] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [dwellFilter, setDwellFilter] = useState<'all' | '0-7' | '8-30' | '30+'>('all');
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [deletedProducts, setDeletedProducts] = useState<any[]>([]);
+  const [deletedLoading, setDeletedLoading] = useState(false);
+
+  const loadDeletedProducts = async () => {
+    if (!storeId) return;
+    setDeletedLoading(true);
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, deleted_at')
+      .eq('store_id', storeId)
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false });
+    if (!error && data) {
+      setDeletedProducts(data);
+    }
+    setDeletedLoading(false);
+  };
 
   const handleClearFilters = () => {
     setInboundStart('');
@@ -231,6 +250,16 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
             className="px-3 py-2 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold transition-all flex items-center gap-2 border border-slate-200 shadow-sm text-sm"
           >
             清空筛选
+          </button>
+
+          <button
+            onClick={async () => {
+              setShowDeleted(true);
+              await loadDeletedProducts();
+            }}
+            className="px-3 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all flex items-center gap-2 border border-slate-900 shadow-sm text-sm"
+          >
+            查看删除记录
           </button>
 
           <button
@@ -470,6 +499,51 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
             </button>
             <div className="p-8 overflow-y-auto custom-scrollbar">
                <ReceiptScanner store={store} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除记录 Modal */}
+      {showDeleted && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-100">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">删除记录 - 商品</h3>
+              <button
+                onClick={() => setShowDeleted(false)}
+                className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-6">
+              {deletedLoading ? (
+                <div className="text-slate-400 text-sm">加载中...</div>
+              ) : deletedProducts.length === 0 ? (
+                <div className="text-slate-400 text-sm">暂无删除记录</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                        <th className="px-6 py-3">商品名称</th>
+                        <th className="px-6 py-3">删除时间</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {deletedProducts.map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
+                          <td className="px-6 py-3 text-slate-500">
+                            {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>

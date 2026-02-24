@@ -17,7 +17,11 @@ function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
 
   const loadStores = useCallback(async () => {
-    const { data, error } = await supabase.from('stores').select('id, name').order('name');
+    const { data, error } = await supabase
+      .from('stores')
+      .select('id, name')
+      .is('deleted_at', null)
+      .order('name');
     if (error) {
       console.error('Failed to load stores:', error);
       return;
@@ -45,13 +49,13 @@ function App() {
       case 'pos':
         return <POS store={store} />;
       case 'inventory':
-        return <Inventory store={store} />;
+        return <Inventory store={store} storeId={storeId} />;
       case 'categories':
-        return <Categories store={store} />;
+        return <Categories store={store} storeId={storeId} />;
       case 'stores':
         return <Stores onStoresChanged={loadStores} />;
       case 'history':
-        return <SalesHistory store={store} />;
+        return <SalesHistory store={store} storeId={storeId} />;
       case 'analytics':
         return <Analytics storeId={storeId} />;
       default:

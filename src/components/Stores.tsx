@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Plus, Trash2, Loader2, Edit2, Check, RotateCcw } from 'lucide-react';
+import { Building2, Plus, Trash2, Loader2, Edit2, Check, RotateCcw, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface StoreItem {
@@ -14,10 +14,13 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [deletedStores, setDeletedStores] = useState<StoreItem[]>([]);
+  const [deletedLoading, setDeletedLoading] = useState(false);
 
   const loadStores = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('stores').select('id, name').order('name');
+    const { data, error } = await supabase.from('stores').select('id, name').is('deleted_at', null).order('name');
     if (!error && data) {
       setStores(data);
     }
@@ -45,11 +48,24 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
 
   const handleDeleteStore = async (storeItem: StoreItem) => {
     if (!window.confirm(`确定要删除门店 "${storeItem.name}" 吗？此操作不可恢复。`)) return;
-    const { error } = await supabase.from('stores').delete().eq('id', storeItem.id);
+    const { error } = await supabase.from('stores').update({ deleted_at: new Date().toISOString() }).eq('id', storeItem.id);
     if (!error) {
       await loadStores();
       onStoresChanged?.();
     }
+  };
+
+  const loadDeletedStores = async () => {
+    setDeletedLoading(true);
+    const { data, error } = await supabase
+      .from('stores')
+      .select('id, name, deleted_at')
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false });
+    if (!error && data) {
+      setDeletedStores(data as StoreItem[]);
+    }
+    setDeletedLoading(false);
   };
 
   const startEditing = (storeItem: StoreItem) => {
@@ -93,6 +109,17 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
         <div>
           <h2 className="text-2xl font-bold text-slate-900">门店管理</h2>
           <p className="text-slate-500 mt-1">维护门店信息，支持多门店数据隔离</p>
+        </div>
+        <div className="ml-auto">
+          <button
+            onClick={async () => {
+              setShowDeleted(true);
+              await loadDeletedStores();
+            }}
+            className="px-3 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all border border-slate-900 shadow-sm text-sm"
+          >
+            查看删除记录
+          </button>
         </div>
       </div>
 
@@ -201,6 +228,50 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
           )}
         </div>
       </div>
+
+      {showDeleted && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-100">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">删除记录 - 门店</h3>
+              <button
+                onClick={() => setShowDeleted(false)}
+                className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-6">
+              {deletedLoading ? (
+                <div className="text-slate-400 text-sm">加载中...</div>
+              ) : deletedStores.length === 0 ? (
+                <div className="text-slate-400 text-sm">暂无删除记录</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                        <th className="px-6 py-3">门店名称</th>
+                        <th className="px-6 py-3">删除时间</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {deletedStores.map((item: any) => (
+                        <tr key={item.id}>
+                          <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
+                          <td className="px-6 py-3 text-slate-500">
+                            {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,12 +1,31 @@
 import React, { useState } from 'react';
 import { useStore } from '../hooks/useStore';
-import { Tags, Plus, Trash2, Loader2, AlertCircle, Check } from 'lucide-react';
+import { Tags, Plus, Trash2, Loader2, AlertCircle, Check, X } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
-export function Categories({ store }: { store: ReturnType<typeof useStore> }) {
+export function Categories({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   const { categories, addCategory, updateCategory, deleteCategory, loading, products } = store;
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [thresholdDrafts, setThresholdDrafts] = useState<Record<string, string>>({});
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [deletedCategories, setDeletedCategories] = useState<any[]>([]);
+  const [deletedLoading, setDeletedLoading] = useState(false);
+
+  const loadDeletedCategories = async () => {
+    if (!storeId) return;
+    setDeletedLoading(true);
+    const { data, error } = await supabase
+      .from('categories')
+      .select('id, name, deleted_at')
+      .eq('store_id', storeId)
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false });
+    if (!error && data) {
+      setDeletedCategories(data);
+    }
+    setDeletedLoading(false);
+  };
 
   const getThresholdValue = (id: string, current?: number | null) => {
     if (Object.prototype.hasOwnProperty.call(thresholdDrafts, id)) {
@@ -83,6 +102,17 @@ export function Categories({ store }: { store: ReturnType<typeof useStore> }) {
         <div>
           <h2 className="text-2xl font-bold text-slate-900">类目管理</h2>
           <p className="text-slate-500 mt-1">管理商品的分类，让库存井井有条</p>
+        </div>
+        <div className="ml-auto">
+          <button
+            onClick={async () => {
+              setShowDeleted(true);
+              await loadDeletedCategories();
+            }}
+            className="px-3 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all border border-slate-900 shadow-sm text-sm"
+          >
+            查看删除记录
+          </button>
         </div>
       </div>
 
@@ -197,6 +227,50 @@ export function Categories({ store }: { store: ReturnType<typeof useStore> }) {
           <b>提示：</b>当您使用小票 AI 扫描功能时，系统会自动识别并在这里创建缺失的分类。
         </p>
       </div>
+
+      {showDeleted && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-100">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">删除记录 - 分类</h3>
+              <button
+                onClick={() => setShowDeleted(false)}
+                className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-6">
+              {deletedLoading ? (
+                <div className="text-slate-400 text-sm">加载中...</div>
+              ) : deletedCategories.length === 0 ? (
+                <div className="text-slate-400 text-sm">暂无删除记录</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                        <th className="px-6 py-3">分类名称</th>
+                        <th className="px-6 py-3">删除时间</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {deletedCategories.map((item) => (
+                        <tr key={item.id}>
+                          <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
+                          <td className="px-6 py-3 text-slate-500">
+                            {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

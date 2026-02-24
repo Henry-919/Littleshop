@@ -6,6 +6,7 @@ export interface Product {
   category?: string;
   cost_price?: number;
   time?: string;
+  deleted_at?: string | null;
 }
 
 export interface Sale {

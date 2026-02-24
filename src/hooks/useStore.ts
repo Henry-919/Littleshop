@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-export interface Category { id: string; name: string; low_stock_threshold?: number | null; store_id?: string; }
+export interface Category { id: string; name: string; low_stock_threshold?: number | null; store_id?: string; deleted_at?: string | null; }
 export interface Product {
   id: string;
   name: string;
@@ -11,6 +11,7 @@ export interface Product {
   cost_price?: number;
   time?: string;
   store_id?: string;
+  deleted_at?: string | null;
 }
 export interface Sale {
   id: string;
@@ -20,6 +21,7 @@ export interface Sale {
   salesperson: string;
   date: string;
   store_id?: string;
+  deleted_at?: string | null;
 }
 
 export function useStore(storeId?: string) {
@@ -40,9 +42,9 @@ export function useStore(storeId?: string) {
     setLoading(true);
     try {
       const [catRes, prodRes, saleRes] = await Promise.all([
-        supabase.from('categories').select('*').eq('store_id', storeId),
-        supabase.from('products').select('*').eq('store_id', storeId).order('name'),
-        supabase.from('sales').select('*').eq('store_id', storeId).order('date', { ascending: false })
+        supabase.from('categories').select('*').eq('store_id', storeId).is('deleted_at', null),
+        supabase.from('products').select('*').eq('store_id', storeId).is('deleted_at', null).order('name'),
+        supabase.from('sales').select('*').eq('store_id', storeId).is('deleted_at', null).order('date', { ascending: false })
       ]);
 
       if (catRes.data) setCategories(catRes.data);
@@ -90,7 +92,7 @@ export function useStore(storeId?: string) {
   };
 
   const deleteProduct = async (id: string) => {
-    const { error } = await supabase.from('products').delete().eq('id', id);
+    const { error } = await supabase.from('products').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     if (!error) setProducts(prev => prev.filter(p => p.id !== id));
     return !error;
   };
@@ -149,9 +151,9 @@ export function useStore(storeId?: string) {
 
   const deleteCategory = async (id: string) => {
     // 1. 将属于该分类的商品 category_id 设为 null
-    await supabase.from('products').update({ category_id: null }).eq('category_id', id);
+    await supabase.from('products').update({ category_id: null }).eq('category_id', id).eq('store_id', storeId);
     // 2. 删除分类
-    const { error } = await supabase.from('categories').delete().eq('id', id);
+    const { error } = await supabase.from('categories').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     if (!error) {
       setCategories(prev => prev.filter(c => c.id !== id));
       setProducts(prev => prev.map(p => p.category_id === id ? { ...p, category_id: undefined } : p));
@@ -171,7 +173,7 @@ export function useStore(storeId?: string) {
       setProducts(prev => prev.map(p => p.id === product.id ? { ...p, stock: newStock } : p));
     }
 
-    const { error } = await supabase.from('sales').delete().eq('id', id);
+    const { error } = await supabase.from('sales').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     if (!error) setSales(prev => prev.filter(s => s.id !== id));
     return !error;
   };
