@@ -44,7 +44,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   return (
     <div className="space-y-6">
       {/* 头部信息 */}
-      <div className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+      <div className="p-4 md:p-6 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-amber-100 text-amber-600 rounded-xl">
             <History className="w-6 h-6" />
@@ -74,7 +74,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
       {/* 表格区域 */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full min-w-[860px] text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-wider">
                 <th className="px-6 py-4 font-semibold">交易时间</th>
@@ -124,7 +124,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                     <td className="px-6 py-4 text-right">
                       <button
                         onClick={() => handleDelete(sale.id, productId, sale.quantity)}
-                        className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                        className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                         title="撤销此单"
                       >
                         <Trash2 className="w-5 h-5" />

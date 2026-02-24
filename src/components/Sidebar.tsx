@@ -7,9 +7,11 @@ export type TabType = 'dashboard' | 'pos' | 'inventory' | 'history' | 'analytics
 interface SidebarProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
-export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
+export function Sidebar({ activeTab, setActiveTab, mobileOpen = false, onCloseMobile }: SidebarProps) {
   // 定义导航项，全部中文化并赋予清晰的语义
   const navItems = [
     { id: 'dashboard', label: '经营看板', icon: LayoutDashboard },
@@ -21,8 +23,8 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
     { id: 'analytics', label: '深度分析', icon: BarChart3 },
   ] as const;
 
-  return (
-    <div className="w-64 bg-slate-950 text-white flex flex-col h-full border-r border-slate-800/50 shadow-2xl">
+  const renderNav = () => (
+    <>
       {/* Logo 区域 */}
       <div className="p-8">
         <div className="flex items-center gap-3">
@@ -44,7 +46,10 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
           return (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => {
+                setActiveTab(item.id);
+                onCloseMobile?.();
+              }}
               className={`w-full flex items-center justify-between group px-4 py-3.5 rounded-xl transition-all duration-200 relative
                 ${isActive 
                   ? 'bg-emerald-500/10 text-emerald-400 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.2)]' 
@@ -83,6 +88,27 @@ export function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
           &copy; 2026 智铺管理系统 v2.4
         </p>
       </div>
-    </div>
+    </>
+  );
+
+  return (
+    <>
+      <div className="hidden md:flex w-64 bg-slate-950 text-white flex-col h-full border-r border-slate-800/50 shadow-2xl">
+        {renderNav()}
+      </div>
+
+      {mobileOpen && (
+        <div className="md:hidden fixed inset-0 z-[120] flex">
+          <button
+            onClick={onCloseMobile}
+            className="absolute inset-0 bg-slate-900/60"
+            aria-label="关闭导航"
+          />
+          <div className="relative w-[84%] max-w-[320px] bg-slate-950 text-white flex flex-col h-full border-r border-slate-800/50 shadow-2xl animate-in slide-in-from-left duration-200">
+            {renderNav()}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

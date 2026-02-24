@@ -102,7 +102,7 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+      <div className="p-4 md:p-6 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row items-start sm:items-center gap-4">
         <div className="p-3 bg-emerald-100 text-emerald-600 rounded-xl">
           <Building2 className="w-6 h-6" />
         </div>
@@ -110,13 +110,13 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
           <h2 className="text-2xl font-bold text-slate-900">门店管理</h2>
           <p className="text-slate-500 mt-1">维护门店信息，支持多门店数据隔离</p>
         </div>
-        <div className="ml-auto">
+        <div className="sm:ml-auto w-full sm:w-auto">
           <button
             onClick={async () => {
               setShowDeleted(true);
               await loadDeletedStores();
             }}
-            className="px-3 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all border border-slate-900 shadow-sm text-sm"
+            className="w-full sm:w-auto px-3 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all border border-slate-900 shadow-sm text-sm"
           >
             查看删除记录
           </button>
@@ -125,7 +125,7 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-100 bg-slate-50/30">
-          <form onSubmit={handleAddStore} className="flex gap-3">
+          <form onSubmit={handleAddStore} className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <input
                 type="text"
@@ -138,7 +138,7 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
             <button
               type="submit"
               disabled={!newStoreName.trim() || isSubmitting}
-              className="px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-xl font-bold transition-all flex items-center gap-2 shadow-sm active:scale-95"
+              className="w-full sm:w-auto px-6 py-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-sm active:scale-95"
             >
               {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
               添加门店
@@ -149,7 +149,7 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
         <div className="p-0">
           {stores.length > 0 ? (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[760px] text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
                     <th className="px-6 py-4 font-semibold">门店名称</th>
@@ -206,7 +206,7 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
                       <td className="px-6 py-4 text-right">
                         <button
                           onClick={() => handleDeleteStore(storeItem)}
-                          className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                          className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
                           title="删除门店"
                         >
                           <Trash2 className="w-5 h-5" />
