@@ -18,7 +18,7 @@ const compressImage = (base64Str: string): Promise<string> => {
     img.src = base64Str;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const MAX_WIDTH = 1500; // 足够清晰用于 OCR
+      const MAX_WIDTH = 1200; // 兼顾清晰度与速度
       let width = img.width;
       let height = img.height;
 
@@ -34,7 +34,7 @@ const compressImage = (base64Str: string): Promise<string> => {
       
       ctx.drawImage(img, 0, 0, width, height);
       // 导出为 jpeg 格式，质量 0.8，并只保留 base64 数据部分
-      const compressed = canvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+      const compressed = canvas.toDataURL('image/jpeg', 0.75).split(',')[1];
       resolve(compressed);
     };
     img.onerror = () => reject(new Error("图片加载失败"));

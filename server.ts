@@ -75,13 +75,14 @@ async function startServer() {
           contents: [{
             parts: [
               {
-                text: `你是一个专业的财务 OCR。任务:提取手写发票信息。
-抬头关键词:WANG YUWU INTERNATIONAL SPC。
-注意：
-1. DESCRIPTION 栏手写内容作为 productName。
-2. 识别 QTY, RATE, AMOUNT。
-3. 日期格式 YYYY-MM-DD。
-4. 必须通过 (数量 * 单价 = 总额) 校验，不符时以图片金额为准。`
+                text: `任务: 从手写发票提取结构化数据。
+抬头关键词: WANG YUWU INTERNATIONAL SPC。
+规则：
+1) DESCRIPTION 为 productName。
+2) 读取 QTY, RATE, AMOUNT。
+3) 日期格式 YYYY-MM-DD。
+4) 若 数量*单价 与 AMOUNT 不一致，以 AMOUNT 为准。
+仅输出 JSON。`
               },
               {
                 inlineData: {
@@ -94,7 +95,7 @@ async function startServer() {
           config: {
             responseMimeType: "application/json",
             responseSchema: schema,
-            temperature: 0.1,
+            temperature: 0.05,
           },
         });
           // If we got a response, break out

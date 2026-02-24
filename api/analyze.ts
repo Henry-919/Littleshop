@@ -56,7 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             {
               parts: [
                 {
-                  text: `你是一个专业的财务 OCR。任务:提取手写发票信息。\n抬头关键词:WANG YUWU INTERNATIONAL SPC。\n注意：\n1. DESCRIPTION 栏手写内容作为 productName。\n2. 识别 QTY, RATE, AMOUNT。\n3. 日期格式 YYYY-MM-DD。\n4. 必须通过 (数量 * 单价 = 总额) 校验，不符时以图片金额为准。`
+                  text: `任务: 从手写发票提取结构化数据。\n抬头关键词: WANG YUWU INTERNATIONAL SPC。\n规则：\n1) DESCRIPTION 为 productName。\n2) 读取 QTY, RATE, AMOUNT。\n3) 日期格式 YYYY-MM-DD。\n4) 若 数量*单价 与 AMOUNT 不一致，以 AMOUNT 为准。\n仅输出 JSON。`
                 },
                 {
                   inlineData: {
@@ -70,7 +70,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           config: {
             responseMimeType: 'application/json',
             responseSchema: schema,
-            temperature: 0.1
+            temperature: 0.05
           }
         });
         if (response) break;
