@@ -183,22 +183,26 @@ export function useStore(storeId?: string) {
     
     // 预先获取最新的分类列表，避免在循环中频繁查询
     let currentCategories = [...categories];
+    // 批次内商品缓存：避免同一份 Excel 里重复商品名导致重复插入
+    let currentProducts = [...products];
+
+    const normalize = (value: string) => value.trim().toLowerCase();
 
     for (const row of rows) {
-      const name = row['商品名称'];
+      const name = String(row['商品名称'] || '').trim();
       if (!name) continue;
       onProgress(`处理中: ${name}`);
 
       const price = parseFloat(row['销售价'] || '0');
       const stock = parseInt(row['库存数量'] || '0', 10);
       const cost_price = parseFloat(row['成本价'] || '0');
-      const categoryName = row['类目'];
+      const categoryName = String(row['类目'] || '').trim();
 
       let category_id = undefined;
 
       // 处理分类
       if (categoryName) {
-        const existingCategory = currentCategories.find(c => c.name === categoryName);
+        const existingCategory = currentCategories.find(c => normalize(c.name) === normalize(categoryName));
         if (existingCategory) {
           category_id = existingCategory.id;
         } else if (storeId) {
@@ -218,11 +222,32 @@ export function useStore(storeId?: string) {
       }
 
       // 修改逻辑：如果存在则覆盖库存数量
-      const existing = products.find(p => p.name === name);
+      const existing = currentProducts.find(p => normalize(p.name) === normalize(name));
       if (existing) {
-        await updateProduct(existing.id, { stock, price, cost_price, category_id });
+        const updated = await updateProduct(existing.id, { stock, price, cost_price, category_id });
+        if (updated) {
+          currentProducts = currentProducts.map(p => p.id === existing.id ? { ...p, stock, price, cost_price, category_id } : p);
+        }
       } else {
-        await addProduct({ name, price, stock, cost_price, category_id });
+        const { data, error } = await addProduct({ name, price, stock, cost_price, category_id });
+
+        if (!error && data) {
+          currentProducts.push(data);
+        } else if ((error as any)?.code === '23505') {
+          // 唯一键冲突时回退为更新（并发或历史数据大小写差异）
+          const { data: duplicated } = await supabase
+            .from('products')
+            .select('id')
+            .eq('store_id', storeId)
+            .eq('name', name)
+            .is('deleted_at', null)
+            .maybeSingle();
+
+          if (duplicated?.id) {
+            await updateProduct(duplicated.id, { stock, price, cost_price, category_id });
+            currentProducts = currentProducts.map(p => p.id === duplicated.id ? { ...p, stock, price, cost_price, category_id } : p);
+          }
+        }
       }
       successCount++;
     }
