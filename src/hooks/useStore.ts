@@ -9,6 +9,7 @@ export interface Product {
   stock: number;
   category_id?: string;
   cost_price?: number;
+  time?: string;
 }
 export interface Sale {
   id: string;
