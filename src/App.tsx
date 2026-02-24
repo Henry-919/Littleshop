@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useStore } from './hooks/useStore';
+import { supabase } from './lib/supabase';
 import { Sidebar, TabType } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { POS } from './components/POS';
@@ -7,28 +8,54 @@ import { Inventory } from './components/Inventory';
 import { SalesHistory } from './components/SalesHistory';
 import { Analytics } from './components/Analytics';
 import { Categories } from './components/Categories';
+import { Stores } from './components/Stores';
 
 function App() {
-  const store = useStore();
+  const [stores, setStores] = useState<{ id: string; name: string }[]>([]);
+  const [storeId, setStoreId] = useState<string>('');
+  const store = useStore(storeId || undefined);
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+
+  const loadStores = useCallback(async () => {
+    const { data, error } = await supabase.from('stores').select('id, name').order('name');
+    if (error) {
+      console.error('Failed to load stores:', error);
+      return;
+    }
+    const list = data || [];
+    setStores(list);
+    if (!storeId && list.length > 0) {
+      setStoreId(list[0].id);
+      return;
+    }
+    if (storeId && !list.some(item => item.id === storeId)) {
+      setStoreId(list[0]?.id || '');
+    }
+  }, [storeId]);
+
+  useEffect(() => {
+    loadStores();
+  }, [loadStores]);
 
   // 根据侧边栏选择渲染对应的页面组件
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard store={store} />;
+        return <Dashboard store={store} storeId={storeId} />;
       case 'pos':
         return <POS store={store} />;
       case 'inventory':
         return <Inventory store={store} />;
       case 'categories':
         return <Categories store={store} />;
+      case 'stores':
+        return <Stores onStoresChanged={loadStores} />;
       case 'history':
         return <SalesHistory store={store} />;
       case 'analytics':
-        return <Analytics />;
+        return <Analytics storeId={storeId} />;
       default:
-        return <Dashboard store={store} />;
+        return <Dashboard store={store} storeId={storeId} />;
     }
   };
 
@@ -48,12 +75,28 @@ function App() {
               {activeTab === 'pos' && '收银终端'}
               {activeTab === 'inventory' && '库存管理'}
               {activeTab === 'categories' && '商品分类'}
+              {activeTab === 'stores' && '门店管理'}
               {activeTab === 'history' && '销售流水'}
               {activeTab === 'analytics' && '深度分析'}
             </span>
           </div>
           
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">门店</span>
+              <select
+                value={storeId}
+                onChange={(e) => setStoreId(e.target.value)}
+                className="px-2 py-1 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                {stores.length === 0 && (
+                  <option value="" disabled>暂无门店</option>
+                )}
+                {stores.map((storeItem) => (
+                  <option key={storeItem.id} value={storeItem.id}>{storeItem.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="text-right">
               <p className="text-xs font-bold text-slate-900">管理员账号</p>
               <p className="text-[10px] text-emerald-500 font-medium">在线模式</p>

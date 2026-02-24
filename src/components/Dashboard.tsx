@@ -1,9 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { useStore } from '../hooks/useStore';
 import { TrendingUp, Users, ShoppingBag, AlertTriangle, PackageSearch, Medal } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
-export function Dashboard({ store }: { store: ReturnType<typeof useStore> }) {
+export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   const { sales, products } = store;
+
+  type PaymentInput = { card: string; cash: string; transfer: string };
 
   const stats = useMemo(() => {
     const totalRevenue = sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
@@ -83,6 +86,133 @@ export function Dashboard({ store }: { store: ReturnType<typeof useStore> }) {
     return { totalRevenue, totalOrders, topSalespeople, topProducts, restockList };
   }, [sales, products]);
 
+  const monthlySales = useMemo(() => {
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    const toMonthKey = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
+    const toDayKey = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+
+    const map = new Map<string, { total: number; daily: Map<string, number> }>();
+    for (const sale of sales) {
+      const date = new Date(sale.date);
+      if (Number.isNaN(date.getTime())) continue;
+      const monthKey = toMonthKey(date);
+      const dayKey = toDayKey(date);
+      if (!map.has(monthKey)) {
+        map.set(monthKey, { total: 0, daily: new Map() });
+      }
+      const entry = map.get(monthKey)!;
+      entry.total += sale.totalAmount || 0;
+      entry.daily.set(dayKey, (entry.daily.get(dayKey) || 0) + (sale.totalAmount || 0));
+    }
+
+    const months = Array.from(map.entries())
+      .map(([monthKey, data]) => ({
+        monthKey,
+        total: data.total,
+        daily: Array.from(data.daily.entries())
+          .map(([date, amount]) => ({ date, amount }))
+          .sort((a, b) => a.date.localeCompare(b.date))
+      }))
+      .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+
+    return months;
+  }, [sales]);
+
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [paymentInputs, setPaymentInputs] = useState<Record<string, PaymentInput>>({});
+  const saveTimers = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!selectedMonth && monthlySales.length > 0) {
+      setSelectedMonth(monthlySales[0].monthKey);
+    }
+  }, [monthlySales, selectedMonth]);
+
+  useEffect(() => {
+    const loadPayments = async () => {
+      if (!selectedMonth) return;
+      const month = monthlySales.find(m => m.monthKey === selectedMonth);
+      if (!month) return;
+
+      const start = `${selectedMonth}-01`;
+      const endDate = new Date(`${selectedMonth}-01T00:00:00`);
+      endDate.setMonth(endDate.getMonth() + 1);
+      endDate.setDate(0);
+      const end = `${selectedMonth}-${String(endDate.getDate()).padStart(2, '0')}`;
+
+      const nextInputs: Record<string, PaymentInput> = {};
+      month.daily.forEach((day) => {
+        nextInputs[day.date] = { card: '', cash: '', transfer: '' };
+      });
+
+      try {
+        if (!storeId) {
+          setPaymentInputs(nextInputs);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('daily_payments')
+          .select('date, card_amount, cash_amount, transfer_amount')
+          .eq('store_id', storeId)
+          .gte('date', start)
+          .lte('date', end);
+
+        if (error) {
+          console.error('Failed to load daily payments:', error);
+        } else if (data) {
+          data.forEach((row: any) => {
+            const dateKey = row.date;
+            if (nextInputs[dateKey]) {
+              nextInputs[dateKey] = {
+                card: row.card_amount?.toString() ?? '',
+                cash: row.cash_amount?.toString() ?? '',
+                transfer: row.transfer_amount?.toString() ?? ''
+              };
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load daily payments:', err);
+      }
+
+      setPaymentInputs(nextInputs);
+    };
+
+    loadPayments();
+  }, [selectedMonth, monthlySales]);
+
+  const scheduleSavePayment = (date: string, input: PaymentInput) => {
+    if (!storeId) return;
+    if (saveTimers.current[date]) {
+      window.clearTimeout(saveTimers.current[date]);
+    }
+
+    saveTimers.current[date] = window.setTimeout(async () => {
+      const payload = {
+        date,
+        card_amount: Number(input.card) || 0,
+        cash_amount: Number(input.cash) || 0,
+        transfer_amount: Number(input.transfer) || 0,
+        store_id: storeId
+      };
+
+      const { error } = await supabase
+        .from('daily_payments')
+        .upsert(payload, { onConflict: 'store_id,date' });
+
+      if (error) {
+        console.error('Failed to save daily payment:', error);
+      }
+    }, 500);
+  };
+
+  const selectedMonthData = monthlySales.find(m => m.monthKey === selectedMonth) || null;
+  const formatMonthLabel = (monthKey: string) => {
+    const [year, month] = monthKey.split('-');
+    return `${year}年${month}月`;
+  };
+
   return (
     <div className="space-y-6 pb-10">
       {/* 欢迎头部 */}
@@ -113,6 +243,130 @@ export function Dashboard({ store }: { store: ReturnType<typeof useStore> }) {
             <p className="text-sm font-medium text-slate-500">累计订单</p>
             <p className="text-3xl font-black text-slate-900">{stats.totalOrders} <span className="text-sm font-normal text-slate-400">单</span></p>
           </div>
+        </div>
+      </div>
+
+      {/* 总营收额模块 */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-emerald-500" />
+            <h3 className="font-bold text-slate-900">总营收额</h3>
+          </div>
+          <span className="text-xs text-slate-400">点击月份查看明细</span>
+        </div>
+        <div className="p-6 space-y-6">
+          {monthlySales.length === 0 ? (
+            <div className="text-slate-400 text-sm text-center py-6">暂无销售数据</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {monthlySales.map((month) => (
+                  <button
+                    key={month.monthKey}
+                    onClick={() => setSelectedMonth(month.monthKey)}
+                    className={`text-left p-4 rounded-2xl border transition-all shadow-sm hover:shadow-md
+                      ${selectedMonth === month.monthKey
+                        ? 'border-emerald-500 bg-emerald-50'
+                        : 'border-slate-100 bg-white'
+                      }`}
+                  >
+                    <div className="text-xs text-slate-400">{formatMonthLabel(month.monthKey)}</div>
+                    <div className="text-xl font-black text-slate-900 mt-1">
+                      ￥{month.total.toLocaleString()}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {selectedMonthData && (
+                <div className="rounded-2xl border border-slate-100 overflow-hidden">
+                  <div className="p-4 bg-slate-50/50 flex items-center justify-between">
+                    <div className="font-bold text-slate-900">
+                      {formatMonthLabel(selectedMonthData.monthKey)}每日销售额
+                    </div>
+                    <div className="text-sm text-slate-500">
+                      本月合计：￥{selectedMonthData.total.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-white text-slate-400 text-xs uppercase tracking-wider">
+                          <th className="px-6 py-3">日期</th>
+                          <th className="px-6 py-3">当日销售额</th>
+                          <th className="px-6 py-3">刷卡收款</th>
+                          <th className="px-6 py-3">现金收款</th>
+                          <th className="px-6 py-3">手机转账</th>
+                          <th className="px-6 py-3">校验</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {selectedMonthData.daily.map((day) => {
+                          const inputs = paymentInputs[day.date] || { card: '', cash: '', transfer: '' };
+                          const card = Number(inputs.card) || 0;
+                          const cash = Number(inputs.cash) || 0;
+                          const transfer = Number(inputs.transfer) || 0;
+                          const sum = card + cash + transfer;
+                          const matched = Math.abs(sum - day.amount) < 0.01;
+                          return (
+                            <tr key={day.date} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-6 py-3 text-slate-600 font-medium">{day.date}</td>
+                              <td className="px-6 py-3 font-black text-emerald-600">￥{day.amount.toFixed(2)}</td>
+                              <td className="px-6 py-3">
+                                <input
+                                  type="number"
+                                  value={inputs.card}
+                                  onChange={(e) => {
+                                    const next = { ...paymentInputs, [day.date]: { ...inputs, card: e.target.value } };
+                                    setPaymentInputs(next);
+                                    scheduleSavePayment(day.date, next[day.date]);
+                                  }}
+                                  className="w-28 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                                  placeholder="0"
+                                />
+                              </td>
+                              <td className="px-6 py-3">
+                                <input
+                                  type="number"
+                                  value={inputs.cash}
+                                  onChange={(e) => {
+                                    const next = { ...paymentInputs, [day.date]: { ...inputs, cash: e.target.value } };
+                                    setPaymentInputs(next);
+                                    scheduleSavePayment(day.date, next[day.date]);
+                                  }}
+                                  className="w-28 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                                  placeholder="0"
+                                />
+                              </td>
+                              <td className="px-6 py-3">
+                                <input
+                                  type="number"
+                                  value={inputs.transfer}
+                                  onChange={(e) => {
+                                    const next = { ...paymentInputs, [day.date]: { ...inputs, transfer: e.target.value } };
+                                    setPaymentInputs(next);
+                                    scheduleSavePayment(day.date, next[day.date]);
+                                  }}
+                                  className="w-28 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                                  placeholder="0"
+                                />
+                              </td>
+                              <td className="px-6 py-3">
+                                <span className={`text-xs font-bold px-2 py-1 rounded-full ${matched ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                  {matched ? '已平衡' : `差额 ￥${(day.amount - sum).toFixed(2)}`}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

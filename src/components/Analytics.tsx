@@ -3,13 +3,14 @@ import { AnalyticsData } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { TrendingUp, AlertTriangle, PackageSearch, Loader2 } from 'lucide-react';
 
-export function Analytics() {
+export function Analytics({ storeId }: { storeId?: string }) {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    fetch('/api/analytics')
+    const url = storeId ? `/api/analytics?storeId=${encodeURIComponent(storeId)}` : '/api/analytics';
+    fetch(url)
       .then(res => {
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
@@ -25,7 +26,7 @@ export function Analytics() {
         setLoading(false);
         alert('加载分析数据失败，请稍后重试。');
       });
-  }, []);
+  }, [storeId]);
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
@@ -77,7 +78,7 @@ export function Analytics() {
               <PackageSearch className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-slate-500 text-sm font-medium">近7日总营收</h3>
+              <h3 className="text-slate-500 text-sm font-medium">本月总营收</h3>
               <p className="text-2xl font-black text-slate-900">
                 ￥{data.dailySales.reduce((sum, day) => sum + day.revenue, 0).toLocaleString()}
               </p>
@@ -91,7 +92,7 @@ export function Analytics() {
         {/* 营收趋势图 */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold text-slate-900">营收走势 (过去7天)</h3>
+            <h3 className="text-lg font-bold text-slate-900">营收走势 (本月)</h3>
             <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-1 rounded">实时更新</span>
           </div>
           <div className="h-72">

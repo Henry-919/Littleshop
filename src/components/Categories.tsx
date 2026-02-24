@@ -1,11 +1,34 @@
 import React, { useState } from 'react';
 import { useStore } from '../hooks/useStore';
-import { Tags, Plus, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import { Tags, Plus, Trash2, Loader2, AlertCircle, Check } from 'lucide-react';
 
 export function Categories({ store }: { store: ReturnType<typeof useStore> }) {
-  const { categories, addCategory, deleteCategory, loading, products } = store;
+  const { categories, addCategory, updateCategory, deleteCategory, loading, products } = store;
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [thresholdDrafts, setThresholdDrafts] = useState<Record<string, string>>({});
+
+  const getThresholdValue = (id: string, current?: number | null) => {
+    if (Object.prototype.hasOwnProperty.call(thresholdDrafts, id)) {
+      return thresholdDrafts[id];
+    }
+    if (current === null || current === undefined) return '';
+    return String(current);
+  };
+
+  const saveThreshold = async (id: string) => {
+    if (!updateCategory) return;
+    const raw = thresholdDrafts[id];
+    const value = raw === '' || raw === undefined ? null : Math.max(0, Number.parseInt(raw, 10) || 0);
+    const success = await updateCategory(id, { low_stock_threshold: value });
+    if (success) {
+      setThresholdDrafts(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +119,7 @@ export function Categories({ store }: { store: ReturnType<typeof useStore> }) {
                   <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
                     <th className="px-6 py-4 font-semibold">分类名称</th>
                     <th className="px-6 py-4 font-semibold">包含商品数量</th>
+                    <th className="px-6 py-4 font-semibold">低库存阈值</th>
                     <th className="px-6 py-4 font-semibold text-right">操作</th>
                   </tr>
                 </thead>
@@ -111,6 +135,33 @@ export function Categories({ store }: { store: ReturnType<typeof useStore> }) {
                           <span className={`text-sm ${count > 0 ? 'text-slate-500' : 'text-slate-300 italic'}`}>
                             {count} 个商品
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={0}
+                              value={getThresholdValue(category.id, category.low_stock_threshold)}
+                              onChange={(e) =>
+                                setThresholdDrafts(prev => ({
+                                  ...prev,
+                                  [category.id]: e.target.value
+                                }))
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveThreshold(category.id);
+                              }}
+                              className="w-24 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                              placeholder="默认"
+                            />
+                            <button
+                              onClick={() => saveThreshold(category.id)}
+                              className="p-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-all"
+                              title="保存阈值"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button

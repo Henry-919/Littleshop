@@ -330,19 +330,41 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
                   </td>
                   <td>
                     {editingStock[product.id] !== undefined ? (
-                      <button
-                        onClick={() => saveStockChange(product.id)}
-                        className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg font-bold text-xs hover:bg-emerald-600 transition-all border border-emerald-500 shadow-sm"
-                      >
-                        保存
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => saveStockChange(product.id)}
+                          className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg font-bold text-xs hover:bg-emerald-600 transition-all border border-emerald-500 shadow-sm"
+                        >
+                          保存
+                        </button>
+                        <button
+                          onClick={() => handleStockChange(product.id, product.stock)}
+                          className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg font-bold text-xs hover:bg-slate-200 transition-all border border-slate-200 shadow-sm"
+                        >
+                          取消
+                        </button>
+                      </div>
                     ) : (
-                      <button
-                        onClick={() => handleStockChange(product.id, product.stock)}
-                        className="px-3 py-1.5 bg-slate-900 text-white rounded-lg font-bold text-xs hover:bg-slate-800 transition-all border border-slate-900 shadow-sm"
-                      >
-                        编辑
-                      </button>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => handleStockChange(product.id, product.stock)}
+                          className="px-3 py-1.5 bg-slate-900 text-white rounded-lg font-bold text-xs hover:bg-slate-800 transition-all border border-slate-900 shadow-sm"
+                        >
+                          编辑
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!deleteProduct) return;
+                            if (window.confirm(`确定要删除商品 "${product.name}" 吗？此操作不可恢复。`)) {
+                              deleteProduct(product.id);
+                            }
+                          }}
+                          className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                          title="删除商品"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>

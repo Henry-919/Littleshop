@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-export interface Category { id: string; name: string; }
+export interface Category { id: string; name: string; low_stock_threshold?: number | null; store_id?: string; }
 export interface Product {
   id: string;
   name: string;
@@ -10,6 +10,7 @@ export interface Product {
   category_id?: string;
   cost_price?: number;
   time?: string;
+  store_id?: string;
 }
 export interface Sale {
   id: string;
@@ -18,9 +19,10 @@ export interface Sale {
   totalAmount: number;
   salesperson: string;
   date: string;
+  store_id?: string;
 }
 
-export function useStore() {
+export function useStore(storeId?: string) {
   const [products, setProducts] = useState<Product[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -28,12 +30,19 @@ export function useStore() {
 
   const fetchData = async () => {
     if (!supabase) return;
+    if (!storeId) {
+      setProducts([]);
+      setSales([]);
+      setCategories([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [catRes, prodRes, saleRes] = await Promise.all([
-        supabase.from('categories').select('*'),
-        supabase.from('products').select('*').order('name'),
-        supabase.from('sales').select('*').order('date', { ascending: false })
+        supabase.from('categories').select('*').eq('store_id', storeId),
+        supabase.from('products').select('*').eq('store_id', storeId).order('name'),
+        supabase.from('sales').select('*').eq('store_id', storeId).order('date', { ascending: false })
       ]);
 
       if (catRes.data) setCategories(catRes.data);
@@ -55,13 +64,15 @@ export function useStore() {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [storeId]);
 
   // --- 核心操作 ---
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
+    if (!storeId) return { data: null, error: new Error('store_id is required') as any };
     const { data, error } = await supabase.from('products').insert([{
       ...product,
+      store_id: storeId,
       stock: product.stock || 10 // Default stock to 10 if not provided
     }]).select().single();
     if (!error && data) setProducts(prev => [...prev, data]);
@@ -84,6 +95,7 @@ export function useStore() {
   };
 
   const addSale = async (productId: string, quantity: number, salesperson: string, date?: string) => {
+    if (!storeId) return false;
     const product = products.find(p => p.id === productId);
     if (!product) return false;
 
@@ -95,7 +107,8 @@ export function useStore() {
       quantity,
       total_amount: product.price * quantity,
       salesperson,
-      date: saleDate
+      date: saleDate,
+      store_id: storeId
     }]).select().single();
 
     if (!saleError && saleData) {
@@ -115,9 +128,22 @@ export function useStore() {
   };
 
   const addCategory = async (name: string) => {
-    const { data, error } = await supabase.from('categories').insert([{ name }]).select().single();
+    if (!storeId) return false;
+    const { data, error } = await supabase.from('categories').insert([{
+      name,
+      store_id: storeId
+    }]).select().single();
     if (!error && data) setCategories(prev => [...prev, data]);
     return !error;
+  };
+
+  const updateCategory = async (id: string, updates: Partial<Category>) => {
+    const { data, error } = await supabase.from('categories').update(updates).eq('id', id).select().single();
+    if (!error && data) {
+      setCategories(prev => prev.map(c => c.id === id ? data : c));
+      return true;
+    }
+    return false;
   };
 
   const deleteCategory = async (id: string) => {
@@ -175,6 +201,6 @@ export function useStore() {
   return { 
     products, sales, categories, loading, fetchData,
     addProduct, updateProduct, deleteProduct, addSale, processExcelImport,
-    addCategory, deleteCategory, deleteSale
+    addCategory, updateCategory, deleteCategory, deleteSale
   };
 }
