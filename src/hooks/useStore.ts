@@ -72,13 +72,49 @@ export function useStore(storeId?: string) {
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
     if (!storeId) return { data: null, error: new Error('store_id is required') as any };
-    const { data, error } = await supabase.from('products').insert([{
+    const insertPayload = {
       ...product,
       store_id: storeId,
       time: product.time || new Date().toISOString(),
-      stock: product.stock || 10 // Default stock to 10 if not provided
-    }]).select().single();
+      stock: product.stock ?? 10
+    };
+
+    const { data, error } = await supabase.from('products').insert([insertPayload]).select().single();
     if (!error && data) setProducts(prev => [...prev, data]);
+
+    if ((error as any)?.code === '23505' || (error as any)?.status === 409) {
+      const { data: duplicatedList } = await supabase
+        .from('products')
+        .select('id,name')
+        .eq('store_id', storeId)
+        .ilike('name', product.name)
+        .limit(1);
+
+      const duplicated = duplicatedList && duplicatedList[0];
+      if (duplicated?.id) {
+        const { data: restored, error: restoreError } = await supabase
+          .from('products')
+          .update({
+            ...product,
+            deleted_at: null,
+            time: product.time || new Date().toISOString(),
+            stock: product.stock ?? 10
+          })
+          .eq('id', duplicated.id)
+          .select()
+          .single();
+
+        if (!restoreError && restored) {
+          setProducts(prev => {
+            const existed = prev.some(p => p.id === restored.id);
+            if (existed) return prev.map(p => p.id === restored.id ? restored : p);
+            return [...prev, restored];
+          });
+          return { data: restored, error: null as any };
+        }
+      }
+    }
+
     return { data, error };
   };
 
