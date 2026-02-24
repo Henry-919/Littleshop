@@ -73,6 +73,7 @@ export function useStore(storeId?: string) {
     const { data, error } = await supabase.from('products').insert([{
       ...product,
       store_id: storeId,
+      time: product.time || new Date().toISOString(),
       stock: product.stock || 10 // Default stock to 10 if not provided
     }]).select().single();
     if (!error && data) setProducts(prev => [...prev, data]);

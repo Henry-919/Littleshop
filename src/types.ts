@@ -4,6 +4,7 @@ export interface Product {
   stock: number;
   price: number;
   category?: string;
+  cost_price?: number;
   time?: string;
 }
 

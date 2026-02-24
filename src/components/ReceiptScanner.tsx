@@ -154,10 +154,11 @@ export function ReceiptScanner({ store }: { store: any }) {
         if (data.saleDate) detectedDate = data.saleDate;
         
         const matched = (data.items || []).map((item: any) => {
-          let bestMatch = products.find((p: any) => getSimilarity(p.name, item.productName) > 0.7);
+          const bestMatch = products.find((p: any) => getSimilarity(p.name, item.productName) > 0.7);
           return {
             ...item,
             matchedProductId: bestMatch ? bestMatch.id : 'CREATE_NEW',
+            matchedProductName: bestMatch ? bestMatch.name : undefined,
             hasMathDiscrepancy: Math.abs(item.unitPrice * item.quantity - item.totalAmount) > 0.1
           };
         });
@@ -165,6 +166,9 @@ export function ReceiptScanner({ store }: { store: any }) {
       });
 
       setResult({ items: allItems, saleDate: detectedDate });
+      if (allItems.some((item) => item.matchedProductId === 'CREATE_NEW')) {
+        setError('存在未匹配商品，请先在库存中创建对应商品后再保存。');
+      }
     } catch (err: any) {
       console.error(err);
       setError(err.message);
@@ -176,18 +180,15 @@ export function ReceiptScanner({ store }: { store: any }) {
   // 保存到数据库
   const handleSave = async () => {
     if (!result) return;
+    if (result.items.some((item) => item.matchedProductId === 'CREATE_NEW')) {
+      setError('存在未匹配商品，已阻止保存。请先在库存中创建对应商品后再保存。');
+      return;
+    }
     setLoading(true);
     try {
       for (const item of result.items) {
         let finalId = item.matchedProductId;
-        if (finalId === 'CREATE_NEW') {
-          const { data: newProd } = await addProduct({
-            name: item.productName,
-            price: item.unitPrice,
-            stock: 0
-          });
-          finalId = newProd.id;
-        }
+        if (finalId === 'CREATE_NEW') continue;
         await addSale(finalId, item.quantity, salesperson, result.saleDate);
       }
       alert("入库成功！");
@@ -277,18 +278,11 @@ export function ReceiptScanner({ store }: { store: any }) {
                       {item.quantity} x ￥{item.unitPrice}
                       {item.hasMathDiscrepancy && <span className="ml-2 text-amber-500 font-medium">⚠️ 金额校验异常</span>}
                     </div>
-                    <select 
-                      value={item.matchedProductId}
-                      onChange={(e) => {
-                        const newItems = [...result.items];
-                        newItems[idx].matchedProductId = e.target.value;
-                        setResult({...result, items: newItems});
-                      }}
-                      className="w-full mt-2 p-1 text-[10px] border rounded bg-slate-50"
-                    >
-                      <option value="CREATE_NEW">✨ 作为新商品入库</option>
-                      {products.map((p: any) => <option key={p.id} value={p.id}>匹配: {p.name}</option>)}
-                    </select>
+                    <div className="mt-2 text-[10px] text-slate-500">
+                      {item.matchedProductId === 'CREATE_NEW'
+                        ? '自动识别：未找到匹配商品，将作为新商品创建'
+                        : `自动匹配：${item.matchedProductName || '已入库商品'}`}
+                    </div>
                   </div>
                 ))}
               </div>

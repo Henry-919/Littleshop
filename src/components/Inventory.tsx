@@ -20,7 +20,7 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addFormData, setAddFormData] = useState({
     name: '',
-    price: '',
+    cost_price: '',
     stock: '',
     category_id: ''
   });
@@ -118,19 +118,20 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
     if (!addProduct) return;
     const name = addFormData.name.trim();
     if (!name) return;
-    const price = Number(addFormData.price) || 0;
+    const costPrice = Number(addFormData.cost_price) || 0;
     const stock = Number(addFormData.stock) || 0;
     const category_id = addFormData.category_id || undefined;
 
     const { error } = await addProduct({
       name,
-      price,
+      price: costPrice,
+      cost_price: costPrice,
       stock,
       category_id
     });
 
     if (!error) {
-      setAddFormData({ name: '', price: '', stock: '', category_id: '' });
+      setAddFormData({ name: '', cost_price: '', stock: '', category_id: '' });
       setIsAddOpen(false);
     }
   };
@@ -258,6 +259,7 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
               <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
                 <th className="px-6 py-4">商品名称</th>
                 <th className="px-6 py-4">库存</th>
+                <th className="px-6 py-4">成本价</th>
                 <th className="px-6 py-4">入库时间</th>
                 <th className="px-6 py-4">滞留时间</th>
                 <th className="px-6 py-4">操作</th>
@@ -317,6 +319,11 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
                     ) : (
                       <span className="font-mono font-bold text-slate-700">{product.stock}</span>
                     )}
+                  </td>
+                  <td>
+                    <span className="font-mono font-bold text-slate-700">
+                      {product.cost_price ?? '-'}
+                    </span>
                   </td>
                   <td>
                     <span className="text-slate-500 whitespace-nowrap">
@@ -399,11 +406,11 @@ export function Inventory({ store }: { store: ReturnType<typeof useStore> }) {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">销售价</label>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">成本价</label>
                   <input
                     type="number"
-                    value={addFormData.price}
-                    onChange={(e) => setAddFormData({ ...addFormData, price: e.target.value })}
+                    value={addFormData.cost_price}
+                    onChange={(e) => setAddFormData({ ...addFormData, cost_price: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                     placeholder="0"
                   />
