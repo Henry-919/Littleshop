@@ -179,23 +179,31 @@ export function useStore(storeId?: string) {
   };
 
   const processExcelImport = async (rows: any[], onProgress: (msg: string) => void) => {
-    let successCount = 0;
-    
-    // 预先获取最新的分类列表，避免在循环中频繁查询
-    let currentCategories = [...categories];
-    // 批次内商品缓存：避免同一份 Excel 里重复商品名导致重复插入
-    let currentProducts = [...products];
+    if (!storeId) return 0;
 
+    let successCount = 0;
     const normalize = (value: string) => value.trim().toLowerCase();
+
+    // 导入前从数据库拉取最新数据，避免前端状态滞后造成重复插入
+    const [catRes, prodRes] = await Promise.all([
+      supabase.from('categories').select('id,name').eq('store_id', storeId).is('deleted_at', null),
+      supabase.from('products').select('id,name').eq('store_id', storeId).is('deleted_at', null)
+    ]);
+
+    let currentCategories: Array<{ id: string; name: string }> = catRes.data || [];
+    let currentProducts: Array<{ id: string; name: string }> = prodRes.data || [];
 
     for (const row of rows) {
       const name = String(row['商品名称'] || '').trim();
       if (!name) continue;
       onProgress(`处理中: ${name}`);
 
-      const price = parseFloat(row['销售价'] || '0');
-      const stock = parseInt(row['库存数量'] || '0', 10);
-      const cost_price = parseFloat(row['成本价'] || '0');
+      const rawPrice = parseFloat(row['销售价'] || '0');
+      const rawStock = parseInt(row['库存数量'] || '0', 10);
+      const rawCost = parseFloat(row['成本价'] || '0');
+      const price = Number.isFinite(rawPrice) ? rawPrice : 0;
+      const stock = Number.isFinite(rawStock) ? rawStock : 0;
+      const cost_price = Number.isFinite(rawCost) ? rawCost : 0;
       const categoryName = String(row['类目'] || '').trim();
 
       let category_id = undefined;
@@ -205,7 +213,7 @@ export function useStore(storeId?: string) {
         const existingCategory = currentCategories.find(c => normalize(c.name) === normalize(categoryName));
         if (existingCategory) {
           category_id = existingCategory.id;
-        } else if (storeId) {
+        } else {
           // 如果分类不存在，则创建新分类
           const { data: newCategory, error } = await supabase
             .from('categories')
@@ -217,6 +225,22 @@ export function useStore(storeId?: string) {
             category_id = newCategory.id;
             currentCategories.push(newCategory); // 更新本地缓存
             setCategories(prev => [...prev, newCategory]); // 更新状态
+          } else if ((error as any)?.code === '23505' || (error as any)?.status === 409) {
+            // 冲突回退：可能是并发或大小写差异，按名称重新查找
+            const { data: duplicatedCategory } = await supabase
+              .from('categories')
+              .select('id,name')
+              .eq('store_id', storeId)
+              .ilike('name', categoryName)
+              .is('deleted_at', null)
+              .limit(1);
+
+            if (duplicatedCategory && duplicatedCategory[0]) {
+              category_id = duplicatedCategory[0].id;
+              if (!currentCategories.some(c => c.id === duplicatedCategory[0].id)) {
+                currentCategories.push(duplicatedCategory[0]);
+              }
+            }
           }
         }
       }
@@ -226,26 +250,29 @@ export function useStore(storeId?: string) {
       if (existing) {
         const updated = await updateProduct(existing.id, { stock, price, cost_price, category_id });
         if (updated) {
-          currentProducts = currentProducts.map(p => p.id === existing.id ? { ...p, stock, price, cost_price, category_id } : p);
+          currentProducts = currentProducts.map(p => p.id === existing.id ? { ...p } : p);
         }
       } else {
         const { data, error } = await addProduct({ name, price, stock, cost_price, category_id });
 
         if (!error && data) {
           currentProducts.push(data);
-        } else if ((error as any)?.code === '23505') {
+        } else if ((error as any)?.code === '23505' || (error as any)?.status === 409) {
           // 唯一键冲突时回退为更新（并发或历史数据大小写差异）
-          const { data: duplicated } = await supabase
+          const { data: duplicatedList } = await supabase
             .from('products')
-            .select('id')
+            .select('id,name')
             .eq('store_id', storeId)
-            .eq('name', name)
+            .ilike('name', name)
             .is('deleted_at', null)
-            .maybeSingle();
+            .limit(1);
 
+          const duplicated = duplicatedList && duplicatedList[0];
           if (duplicated?.id) {
             await updateProduct(duplicated.id, { stock, price, cost_price, category_id });
-            currentProducts = currentProducts.map(p => p.id === duplicated.id ? { ...p, stock, price, cost_price, category_id } : p);
+            if (!currentProducts.some(p => p.id === duplicated.id)) {
+              currentProducts.push(duplicated);
+            }
           }
         }
       }
