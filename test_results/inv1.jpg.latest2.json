@@ -1,0 +1,15 @@
+﻿{
+    "ok":  true,
+    "status":  200,
+    "body":  {
+                 "items":  [
+                               {
+                                   "productName":  "Ly-74-2",
+                                   "unitPrice":  2.5,
+                                   "quantity":  2,
+                                   "totalAmount":  5
+                               }
+                           ],
+                 "saleDate":  "2026-02-20"
+             }
+}

@@ -30,7 +30,7 @@ function extractBase64Data(input: string) {
   const raw = String(input || '').trim();
   if (!raw) return '';
 
-  const dataUrlMatch = raw.match(/^data:[^;]+;base64,(.+)$/i);
+  const dataUrlMatch = raw.match(/^data:.*?;base64,(.+)$/i);
   const payload = (dataUrlMatch ? dataUrlMatch[1] : raw).replace(/\s+/g, '');
   if (!payload) return '';
 

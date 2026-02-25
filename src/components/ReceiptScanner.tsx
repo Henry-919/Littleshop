@@ -141,8 +141,10 @@ export function ReceiptScanner({ store }: { store: any }) {
   const [pendingAnalysis, setPendingAnalysis] = useState<PendingAnalysis | null>(null);
   const [report, setReport] = useState<ReceiptReport | null>(null);
   const [manualSelections, setManualSelections] = useState<Record<number, string>>({});
+  const [editableProductNames, setEditableProductNames] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [salesperson, setSalesperson] = useState('自动扫描');
+  const [saleDateInput, setSaleDateInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const productIndex = useMemo(() => {
@@ -243,7 +245,36 @@ export function ReceiptScanner({ store }: { store: any }) {
       reviewItems,
       previewItems
     });
+    const nextEditableNames: Record<number, string> = {};
+    previewItems.forEach((item, index) => {
+      nextEditableNames[index] = item.productName;
+    });
+    setEditableProductNames(nextEditableNames);
+    setSaleDateInput(saleDate || '');
     setReport(null);
+  };
+
+  const applyEditedProductName = (index: number) => {
+    if (!pendingAnalysis) return;
+    const current = pendingAnalysis.previewItems[index];
+    if (!current) return;
+
+    const edited = String(editableProductNames[index] || '').trim();
+    if (!edited) {
+      setEditableProductNames((prev) => ({ ...prev, [index]: current.productName }));
+      return;
+    }
+
+    if (edited === current.productName) return;
+
+    const nextItems: ParsedReceiptItem[] = pendingAnalysis.previewItems.map((item, idx) => ({
+      productName: idx === index ? edited : item.productName,
+      unitPrice: item.unitPrice,
+      quantity: item.quantity,
+      totalAmount: item.totalAmount
+    }));
+
+    buildMatchPreview(nextItems, pendingAnalysis.saleDate);
   };
 
   // 核心：识别 -> 匹配 -> 预览
@@ -254,47 +285,68 @@ export function ReceiptScanner({ store }: { store: any }) {
     try {
       const parsedItems: ParsedReceiptItem[] = [];
       let detectedDate = '';
+      let failedCount = 0;
+      const failureMessages: string[] = [];
+      const candidateProducts = Array.from(new Set((productIndex || []).map((item: any) => String(item?.name || '').trim()).filter(Boolean))).slice(0, 120);
 
       for (const imageDataUrl of images) {
-        const compressed = await compressImageDataUrl(imageDataUrl);
-        const response = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Data: compressed, mimeType: 'image/jpeg' })
-        });
-
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload?.error || 'AI 解析失败');
-        }
-
-        if (payload?.saleDate) detectedDate = payload.saleDate;
-
-        const items = Array.isArray(payload?.items) ? payload.items : [];
-        items.forEach((item: any) => {
-          const productName = String(item?.productName || '').trim();
-          const unitPrice = Number(item?.unitPrice ?? 0);
-          const quantity = Number(item?.quantity ?? 0);
-          const totalAmount = Number(item?.totalAmount ?? 0);
-          if (!productName || !Number.isFinite(quantity) || quantity <= 0) return;
-          parsedItems.push({
-            productName,
-            unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
-            quantity,
-            totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0
+        try {
+          const compressed = await compressImageDataUrl(imageDataUrl);
+          const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64Data: compressed, mimeType: 'image/jpeg', candidateProducts })
           });
-        });
+
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload?.error || 'AI 解析失败');
+          }
+
+          if (payload?.saleDate) detectedDate = payload.saleDate;
+
+          const items = Array.isArray(payload?.items) ? payload.items : [];
+          items.forEach((item: any) => {
+            const productName = String(item?.productName || '').trim();
+            const unitPrice = Number(item?.unitPrice ?? 0);
+            const quantity = Number(item?.quantity ?? 0);
+            const totalAmount = Number(item?.totalAmount ?? 0);
+            if (!productName || !Number.isFinite(quantity) || quantity <= 0) return;
+            parsedItems.push({
+              productName,
+              unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+              quantity,
+              totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0
+            });
+          });
+        } catch (singleErr: any) {
+          failedCount += 1;
+          const rawMessage = String(singleErr?.message || singleErr || '识别失败');
+          const message = rawMessage.toLowerCase().includes('did not match the expected pattern')
+            ? '图片格式解析失败，请重拍或改用 JPG/PNG 图片'
+            : rawMessage;
+          failureMessages.push(message);
+        }
       }
 
       if (parsedItems.length === 0) {
-        setError('未识别到可用商品数据，请检查发票清晰度');
+        const head = failureMessages[0] || '未识别到可用商品数据，请检查发票清晰度';
+        setError(images.length > 1 ? `${head}（共 ${failedCount} 张失败）` : head);
         return;
+      }
+
+      if (failedCount > 0) {
+        setError(`部分图片识别失败（${failedCount}/${images.length}），其余结果已生成预览`);
       }
 
       buildMatchPreview(parsedItems, detectedDate || undefined);
     } catch (err: any) {
       console.error(err);
-      setError(err.message);
+      const rawMessage = String(err?.message || err || '识别失败');
+      const message = rawMessage.toLowerCase().includes('did not match the expected pattern')
+        ? '图片格式解析失败，请重拍或改用 JPG/PNG 图片'
+        : rawMessage;
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -303,20 +355,23 @@ export function ReceiptScanner({ store }: { store: any }) {
   const exitPendingPreview = () => {
     setPendingAnalysis(null);
     setManualSelections({});
+    setEditableProductNames({});
+    setSaleDateInput('');
   };
 
   const applyAutoMatchedSales = async () => {
     if (!pendingAnalysis) return;
     setApplyingAuto(true);
     try {
+      const finalSaleDate = saleDateInput || pendingAnalysis.saleDate;
       for (const sale of pendingAnalysis.autoSales) {
-        await addSale(sale.productId, sale.quantity, salesperson, pendingAnalysis.saleDate);
+        await addSale(sale.productId, sale.quantity, salesperson, finalSaleDate || undefined);
       }
 
       await store.fetchData?.();
 
       setReport({
-        saleDate: pendingAnalysis.saleDate,
+        saleDate: finalSaleDate,
         totalItems: pendingAnalysis.totalItems,
         autoMatchedItems: pendingAnalysis.autoSales.length,
         manualMatchedItems: 0,
@@ -345,11 +400,12 @@ export function ReceiptScanner({ store }: { store: any }) {
     setApplyingManual(true);
     setError(null);
     try {
+      const finalSaleDate = saleDateInput || report.saleDate;
       for (const index of selectedIndexes) {
         const item = report.reviewItems[index];
         const productId = manualSelections[index];
         if (!item || !productId) continue;
-        await addSale(productId, item.quantity, salesperson, report.saleDate);
+        await addSale(productId, item.quantity, salesperson, finalSaleDate || undefined);
       }
 
       const selectedSet = new Set(selectedIndexes);
@@ -364,6 +420,7 @@ export function ReceiptScanner({ store }: { store: any }) {
         if (!prev) return prev;
         return {
           ...prev,
+          saleDate: finalSaleDate,
           manualMatchedItems: prev.manualMatchedItems + selectedIndexes.length,
           reviewItems: remainingReview
         };
@@ -380,7 +437,7 @@ export function ReceiptScanner({ store }: { store: any }) {
   const showMobileActions = !!pendingAnalysis || !!(report && report.reviewItems.length > 0);
 
   return (
-    <div className="p-3 sm:p-4 max-w-4xl mx-auto space-y-3 sm:space-y-4">
+    <div className={`p-3 sm:p-4 max-w-4xl mx-auto space-y-3 sm:space-y-4 ${showMobileActions ? 'pb-24 sm:pb-0' : ''}`}>
       {/* 顶部控制栏 */}
       <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 sm:gap-4">
         <div className="min-w-0">
@@ -389,14 +446,21 @@ export function ReceiptScanner({ store }: { store: any }) {
           </h2>
           <p className="text-slate-500 text-xs sm:text-sm mt-1">流程：高置信匹配 → 预览复核 → 执行入账</p>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full md:w-auto">
-          <span className="text-xs sm:text-sm font-medium text-slate-500 shrink-0">销售员:</span>
-          <input 
-            type="text" 
-            value={salesperson} 
+        <div className="grid grid-cols-1 sm:grid-cols-[auto,1fr,1fr] gap-2 w-full md:w-auto">
+          <span className="text-xs sm:text-sm font-medium text-slate-500 self-center">销售员:</span>
+          <input
+            type="text"
+            value={salesperson}
             onChange={(e) => setSalesperson(e.target.value)}
             placeholder="输入销售员姓名"
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 w-full md:w-40"
+            className="px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 w-full min-w-0"
+          />
+          <input
+            type="date"
+            value={saleDateInput}
+            onChange={(e) => setSaleDateInput(e.target.value)}
+            className="px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 w-full min-w-0"
+            title="销售日期（可手动修正）"
           />
         </div>
       </div>
@@ -444,7 +508,7 @@ export function ReceiptScanner({ store }: { store: any }) {
                 <div className="text-sm font-bold text-sky-800">
                   识别预览（发票）
                 </div>
-                <div className="w-full sm:w-auto flex gap-2">
+                <div className="hidden sm:flex w-full sm:w-auto gap-2">
                   <button
                     onClick={exitPendingPreview}
                     disabled={applyingAuto}
@@ -481,10 +545,23 @@ export function ReceiptScanner({ store }: { store: any }) {
                 </div>
               </div>
 
-              <div className="max-h-[42dvh] sm:max-h-[400px] overflow-y-auto space-y-2 pr-0.5">
+              <div className="max-h-[44dvh] sm:max-h-[400px] overflow-y-auto space-y-2 pr-0.5">
                 {pendingAnalysis.previewItems.map((item, idx) => (
                   <div key={idx} className="bg-white rounded-lg border border-sky-100 p-2.5 text-xs">
-                    <div className="font-medium text-slate-800 break-words">商品：{item.productName}</div>
+                    <div className="font-medium text-slate-800 break-words">商品：</div>
+                    <input
+                      value={editableProductNames[idx] ?? item.productName}
+                      onChange={(e) => setEditableProductNames((prev) => ({ ...prev, [idx]: e.target.value }))}
+                      onBlur={() => applyEditedProductName(idx)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          applyEditedProductName(idx);
+                        }
+                      }}
+                      className="mt-1 w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm sm:text-xs"
+                      placeholder="可编辑商品名，失焦后自动重新匹配"
+                    />
                     <div className="text-slate-500 mt-0.5">
                       数量：{item.quantity} · 单价：￥{item.unitPrice} · 金额：￥{item.totalAmount}
                     </div>
@@ -538,12 +615,12 @@ export function ReceiptScanner({ store }: { store: any }) {
                     <button
                       onClick={applySelectedManualSales}
                       disabled={applyingManual || selectedManualCount === 0}
-                      className="w-full sm:w-auto px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-50"
+                      className="hidden sm:block w-full sm:w-auto px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-50"
                     >
                       {applyingManual ? '执行中...' : `执行已选复核项（${selectedManualCount}）`}
                     </button>
                   </div>
-                  <div className="max-h-[42dvh] sm:max-h-[380px] overflow-y-auto space-y-2 pr-0.5">
+                  <div className="max-h-[44dvh] sm:max-h-[380px] overflow-y-auto space-y-2 pr-0.5">
                     {report.reviewItems.map((item, idx) => (
                       <div key={idx} className="bg-white rounded-lg border border-amber-100 p-2.5 text-xs">
                         <div className="font-medium text-slate-800 break-words">商品：{item.productName}</div>
@@ -574,6 +651,8 @@ export function ReceiptScanner({ store }: { store: any }) {
                 onClick={() => {
                   setReport(null);
                   setManualSelections({});
+                  setEditableProductNames({});
+                  setSaleDateInput('');
                   setImages([]);
                 }}
                 className="w-full py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold"
@@ -590,19 +669,19 @@ export function ReceiptScanner({ store }: { store: any }) {
       </div>
 
       {showMobileActions && (
-        <div className="sm:hidden border-t border-slate-100 bg-white/95 backdrop-blur-md p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="sm:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-slate-100 bg-white/95 backdrop-blur-md p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           {pendingAnalysis ? (
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={exitPendingPreview}
-                className="px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold"
+                className="px-3 py-2.5 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold"
               >
                 退出预览
               </button>
               <button
                 onClick={applyAutoMatchedSales}
                 disabled={applyingAuto}
-                className="px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
+                className="px-3 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
               >
                 {applyingAuto ? '执行中...' : '确认执行自动入账'}
               </button>
@@ -611,7 +690,7 @@ export function ReceiptScanner({ store }: { store: any }) {
             <button
               onClick={applySelectedManualSales}
               disabled={applyingManual || selectedManualCount === 0}
-              className="w-full px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
+              className="w-full px-3 py-2.5 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
             >
               {applyingManual ? '应用中...' : `应用已选择项(${selectedManualCount})`}
             </button>

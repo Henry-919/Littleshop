@@ -1,15 +1,7 @@
 {
-  "status": 200,
-  "ok": true,
+  "status": 500,
+  "ok": false,
   "body": {
-    "items": [
-      {
-        "productName": "Ly-74-2",
-        "unitPrice": 2.5,
-        "quantity": 2,
-        "totalAmount": 5
-      }
-    ],
-    "saleDate": "2026-02-20"
+    "error": "GEMINI_API_KEY is not configured"
   }
 }

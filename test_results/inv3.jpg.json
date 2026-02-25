@@ -1,15 +1,7 @@
 {
-  "status": 200,
-  "ok": true,
+  "status": 500,
+  "ok": false,
   "body": {
-    "items": [
-      {
-        "productName": "41901-2",
-        "unitPrice": 4,
-        "quantity": 1,
-        "totalAmount": 4
-      }
-    ],
-    "saleDate": "2026-02-20"
+    "error": "GEMINI_API_KEY is not configured"
   }
 }

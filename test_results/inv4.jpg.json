@@ -1,21 +1,7 @@
 {
-  "status": 200,
-  "ok": true,
+  "status": 500,
+  "ok": false,
   "body": {
-    "items": [
-      {
-        "productName": "A 20-5-2",
-        "unitPrice": 1.4,
-        "quantity": 10,
-        "totalAmount": 14
-      },
-      {
-        "productName": "A-205-5",
-        "unitPrice": 1.4,
-        "quantity": 5,
-        "totalAmount": 7
-      }
-    ],
-    "saleDate": "2020-02-20"
+    "error": "GEMINI_API_KEY is not configured"
   }
 }
