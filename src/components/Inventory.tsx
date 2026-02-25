@@ -97,9 +97,13 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     return products.filter((p) => {
       const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesCategory =
-        categoryFilter === 'all' ||
-        (categoryFilter === 'uncategorized' ? !p.category_id : p.category_id === categoryFilter);
+      const productCategoryId = (p.category_id ?? '').toString().trim();
+      const selectedCategory = categoryFilter.toString().trim();
+      const matchesCategory = (() => {
+        if (selectedCategory === 'all') return true;
+        if (selectedCategory === 'uncategorized') return !productCategoryId;
+        return productCategoryId === selectedCategory;
+      })();
 
       const inboundDate = getInboundDate(p.time);
       const dwellDays = getDwellDays(p.time);
@@ -249,7 +253,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[minmax(240px,1.1fr)_repeat(4,minmax(130px,1fr))] gap-2 md:gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1.1fr)_minmax(280px,1.15fr)_repeat(3,minmax(140px,1fr))] gap-2 md:gap-3">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input 
@@ -266,14 +270,14 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               type="date"
               value={inboundStart}
               onChange={(e) => setInboundStart(e.target.value)}
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              className="flex-1 min-w-0 px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <span className="text-xs text-slate-400">-</span>
             <input
               type="date"
               value={inboundEnd}
               onChange={(e) => setInboundEnd(e.target.value)}
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              className="flex-1 min-w-0 px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
 
