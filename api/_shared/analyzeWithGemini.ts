@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
 const preferredModels = ['gemini-flash-latest'];
-const MODEL_TIMEOUT_MS = 8000;
+const MODEL_TIMEOUT_MS = 12000;
 
 type AnalyzeInput = {
   base64Data: string;

@@ -664,6 +664,11 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
           if (!payload && lastRetryError) throw lastRetryError;
 
           const items = Array.isArray(payload?.items) ? payload.items : [];
+          if (payload?.error === 'ai_timeout') {
+            failedCount += 1;
+            failureMessages.push('云端识别超时，已跳过该图片');
+            continue;
+          }
           items.forEach((item: any) => {
             const model = String(item?.model || item?.productModel || item?.productName || '').trim();
             const qty = Number(item?.quantity ?? item?.qty ?? 0);

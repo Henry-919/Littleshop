@@ -3,7 +3,7 @@ import { Type } from '@google/genai';
 import { analyzeWithGemini, setCors } from './_shared/analyzeWithGemini.js';
 
 export const config = {
-  maxDuration: 60
+  maxDuration: 300
 };
 
 const schema = {
