@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { FileSpreadsheet, Loader2, X, AlertTriangle, CheckCircle2, ImageUp } from 'lucide-react';
+import { FileSpreadsheet, Loader2, X, AlertTriangle, CheckCircle2, ImageUp, History } from 'lucide-react';
 
 interface StockBatchImporterProps {
   store?: any;
@@ -27,6 +27,7 @@ type UnmatchedItem = {
 };
 
 type ImportReport = {
+  source?: 'excel' | 'image';
   totalRows: number;
   parsedRows: number;
   autoMatchedRows: number;
@@ -53,6 +54,19 @@ type PendingAnalysis = {
   autoIncrements: Array<{ productId: string; productName: string; qty: number }>;
   previewItems: PreviewItem[];
 };
+
+type StockHistoryItem = {
+  id: string;
+  time: string;
+  source: 'excel' | 'image';
+  mode: 'auto' | 'manual';
+  model: string;
+  qty: number;
+  matchedProductName: string;
+};
+
+const STOCK_HISTORY_KEY = 'littleshop_stock_batch_history_v1';
+const MAX_HISTORY_COUNT = 500;
 
 const MODEL_KEYS = ['型号', '商品型号', '商品名称', '名称', 'model', 'Model'];
 const QTY_KEYS = ['数量', '库存数量', '补货数量', 'qty', 'Qty', 'QTY'];
@@ -243,6 +257,19 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
   const [pendingAnalysis, setPendingAnalysis] = useState<PendingAnalysis | null>(null);
   const [manualSelections, setManualSelections] = useState<Record<number, string>>({});
   const [reviewFilter, setReviewFilter] = useState<'all' | 'selected' | 'unselected'>('all');
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyRecords, setHistoryRecords] = useState<StockHistoryItem[]>(() => {
+    try {
+      if (typeof window === 'undefined') return [];
+      const raw = window.localStorage.getItem(STOCK_HISTORY_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
 
   const products = store?.products || [];
   const updateProduct = store?.updateProduct;
@@ -251,6 +278,33 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
   const productIndex = useMemo(() => {
     return products.map((p: any) => ({ id: p.id, name: p.name, stock: Number(p.stock) || 0 }));
   }, [products]);
+
+  const saveHistory = (records: StockHistoryItem[]) => {
+    setHistoryRecords(records);
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(STOCK_HISTORY_KEY, JSON.stringify(records));
+      }
+    } catch {
+      // ignore localStorage write failure
+    }
+  };
+
+  const appendHistory = (items: StockHistoryItem[]) => {
+    if (!items.length) return;
+    const next = [...items, ...historyRecords].slice(0, MAX_HISTORY_COUNT);
+    saveHistory(next);
+  };
+
+  const clearHistory = () => {
+    saveHistory([]);
+    setHistoryPage(1);
+  };
+
+  const historyPageSize = 10;
+  const totalHistoryPages = Math.max(1, Math.ceil(historyRecords.length / historyPageSize));
+  const safeHistoryPage = Math.min(historyPage, totalHistoryPages);
+  const pagedHistory = historyRecords.slice((safeHistoryPage - 1) * historyPageSize, safeHistoryPage * historyPageSize);
 
   const filteredReviewItems = useMemo(() => {
     if (!report) return [] as Array<UnmatchedItem & { originalIndex: number }>;
@@ -393,9 +447,23 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
         }
       }
 
+      const autoHistoryItems: StockHistoryItem[] = pendingAnalysis.previewItems
+        .filter(item => item.status === 'auto' && item.bestCandidate)
+        .map(item => ({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${item.rowIndex}`,
+          time: new Date().toISOString(),
+          source: pendingAnalysis.source,
+          mode: 'auto',
+          model: item.model,
+          qty: item.qty,
+          matchedProductName: item.bestCandidate?.productName || ''
+        }));
+      appendHistory(autoHistoryItems);
+
       await fetchData?.();
 
       setReport({
+        source: pendingAnalysis.source,
         totalRows: pendingAnalysis.totalRows,
         parsedRows: pendingAnalysis.parsedRows,
         autoMatchedRows: pendingAnalysis.parsedRows - pendingAnalysis.unmatched.length,
@@ -408,6 +476,12 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
     } finally {
       setApplyingAuto(false);
     }
+  };
+
+  const exitPendingPreview = () => {
+    setPendingAnalysis(null);
+    setManualSelections({});
+    setReviewFilter('all');
   };
 
   const processFile = async (file: File) => {
@@ -514,11 +588,22 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
       });
 
       const incrementsByProduct = new Map<string, number>();
+      const manualHistoryItems: StockHistoryItem[] = [];
       selectedIndexes.forEach((index) => {
         const item = report.unmatched[index];
         const productId = manualSelections[index];
         if (!item || !productId) return;
         incrementsByProduct.set(productId, (incrementsByProduct.get(productId) || 0) + item.qty);
+        const matchedProductName = productIndex.find((p: any) => p.id === productId)?.name || '';
+        manualHistoryItems.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${index}`,
+          time: new Date().toISOString(),
+          source: report.source || 'excel',
+          mode: 'manual',
+          model: item.model,
+          qty: item.qty,
+          matchedProductName
+        });
       });
 
       let updatedProducts = 0;
@@ -544,6 +629,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
       });
 
       setManualSelections(remainingSelections);
+      appendHistory(manualHistoryItems);
       setReport((prev) => {
         if (!prev) return prev;
         return {
@@ -604,12 +690,24 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                 <h3 className="text-base sm:text-lg font-bold text-slate-900">批量补库存（智能匹配）</h3>
                 <p className="text-[11px] sm:text-xs text-slate-500 mt-1">仅自动更新高置信度型号；低置信度将保留在复核列表，不自动写入</p>
               </div>
-              <button
-                onClick={() => setOpen(false)}
-                className="p-2.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    setShowHistory(true);
+                    setHistoryPage(1);
+                  }}
+                  className="p-2.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
+                  title="查看历史记录"
+                >
+                  <History className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setOpen(false)}
+                  className="p-2.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="p-3 sm:p-6 space-y-4 overflow-y-auto">
@@ -640,6 +738,12 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                       识别预览（来源：{pendingAnalysis.source === 'excel' ? 'Excel' : '图片'}）
                     </div>
                     <div className="w-full sm:w-auto flex gap-2">
+                      <button
+                        onClick={exitPendingPreview}
+                        className="flex-1 sm:flex-none px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold hover:bg-slate-50"
+                      >
+                        退出预览
+                      </button>
                       <button
                         onClick={() => exportReviewList(pendingAnalysis.unmatched, '复核清单_预览')}
                         className="flex-1 sm:flex-none px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold hover:bg-slate-50"
@@ -816,17 +920,23 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
             {(pendingAnalysis || (report && report.unmatched.length > 0)) && (
               <div className="sm:hidden border-t border-slate-100 bg-white/95 backdrop-blur-md p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 {pendingAnalysis ? (
-                  <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={exitPendingPreview}
+                      className="px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold"
+                    >
+                      退出预览
+                    </button>
                     <button
                       onClick={() => exportReviewList(pendingAnalysis.unmatched, '复核清单_预览')}
-                      className="flex-1 px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold"
+                      className="px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold"
                     >
                       导出复核清单
                     </button>
                     <button
                       onClick={applyAutoMatchedRows}
                       disabled={applyingAuto}
-                      className="flex-1 px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
+                      className="px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
                     >
                       {applyingAuto ? '执行中...' : '确认执行'}
                     </button>
@@ -850,6 +960,115 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showHistory && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[130] flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-4xl border border-slate-100 overflow-hidden h-[96dvh] sm:max-h-[92vh] flex flex-col">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900">批量补库存历史记录</h3>
+                <p className="text-xs text-slate-500 mt-1">用于二次核验：商品型号、数量、匹配商品与时间</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={clearHistory}
+                  disabled={historyRecords.length === 0}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-700 disabled:text-slate-300 disabled:bg-slate-50"
+                >
+                  清空历史
+                </button>
+                <button
+                  onClick={() => setShowHistory(false)}
+                  className="p-2.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-3">
+              {historyRecords.length === 0 ? (
+                <div className="text-center text-slate-400 text-sm py-10">暂无批量补库存历史记录</div>
+              ) : (
+                <>
+                  <div className="sm:hidden space-y-2">
+                    {pagedHistory.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-slate-100 bg-slate-50/40 p-3 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-slate-500">{new Date(item.time).toLocaleString('zh-CN')}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">{item.source === 'excel' ? 'Excel' : '图片'}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${item.mode === 'auto' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {item.mode === 'auto' ? '自动' : '人工'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-sm font-semibold text-slate-800 break-words">型号：{item.model}</div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">数量</span>
+                          <span className="font-mono font-bold text-slate-800">{item.qty}</span>
+                        </div>
+                        <div className="text-xs text-slate-600 break-words">匹配商品：{item.matchedProductName || '-'}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="hidden sm:block overflow-x-auto border border-slate-100 rounded-xl">
+                    <table className="w-full text-left text-sm min-w-[720px]">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 text-xs uppercase">
+                          <th className="px-4 py-3">时间</th>
+                          <th className="px-4 py-3">来源</th>
+                          <th className="px-4 py-3">模式</th>
+                          <th className="px-4 py-3">商品型号</th>
+                          <th className="px-4 py-3 text-center">数量</th>
+                          <th className="px-4 py-3">匹配商品</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {pagedHistory.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50/60">
+                            <td className="px-4 py-3 text-xs text-slate-500">{new Date(item.time).toLocaleString('zh-CN')}</td>
+                            <td className="px-4 py-3 text-xs text-slate-700">{item.source === 'excel' ? 'Excel' : '图片'}</td>
+                            <td className="px-4 py-3 text-xs">
+                              <span className={`px-2 py-0.5 rounded-full font-bold ${item.mode === 'auto' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {item.mode === 'auto' ? '自动' : '人工'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 font-medium text-slate-800">{item.model}</td>
+                            <td className="px-4 py-3 text-center font-mono font-bold text-slate-700">{item.qty}</td>
+                            <td className="px-4 py-3 text-slate-600">{item.matchedProductName || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex items-center justify-between sticky bottom-0 bg-white py-2">
+                    <span className="text-xs text-slate-500">第 {safeHistoryPage}/{totalHistoryPages} 页 · 共 {historyRecords.length} 条</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setHistoryPage(prev => Math.max(1, prev - 1))}
+                        disabled={safeHistoryPage <= 1}
+                        className="px-3 py-2 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 disabled:text-slate-300 disabled:bg-slate-50"
+                      >
+                        上一页
+                      </button>
+                      <button
+                        onClick={() => setHistoryPage(prev => Math.min(totalHistoryPages, prev + 1))}
+                        disabled={safeHistoryPage >= totalHistoryPages}
+                        className="px-3 py-2 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 disabled:text-slate-300 disabled:bg-slate-50"
+                      >
+                        下一页
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
