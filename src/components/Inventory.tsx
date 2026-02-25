@@ -153,7 +153,40 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     if (!name) return;
     const costPrice = Number(addFormData.cost_price) || 0;
     const stock = Number(addFormData.stock) || 0;
-    const category_id = addFormData.category_id || undefined;
+    let category_id = addFormData.category_id || undefined;
+
+    // 未手动选择分类时，自动归入“未分类”
+    if (!category_id && storeId) {
+      const normalize = (value: string) => value.trim().toLowerCase();
+      const defaultCategoryName = '未分类';
+
+      const existingCategory = categories.find(c => normalize(c.name) === normalize(defaultCategoryName));
+      if (existingCategory) {
+        category_id = existingCategory.id;
+      } else {
+        const { data: newCategory, error: createCategoryError } = await supabase
+          .from('categories')
+          .insert([{ name: defaultCategoryName, store_id: storeId }])
+          .select('id,name')
+          .single();
+
+        if (!createCategoryError && newCategory) {
+          category_id = newCategory.id;
+        } else if ((createCategoryError as any)?.code === '23505' || (createCategoryError as any)?.status === 409) {
+          const { data: duplicatedCategory } = await supabase
+            .from('categories')
+            .select('id,name')
+            .eq('store_id', storeId)
+            .ilike('name', defaultCategoryName)
+            .is('deleted_at', null)
+            .limit(1);
+
+          if (duplicatedCategory && duplicatedCategory[0]) {
+            category_id = duplicatedCategory[0].id;
+          }
+        }
+      }
+    }
 
     const { error } = await addProduct({
       name,

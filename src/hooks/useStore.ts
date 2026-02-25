@@ -240,42 +240,40 @@ export function useStore(storeId?: string) {
       const price = Number.isFinite(rawPrice) ? rawPrice : 0;
       const stock = Number.isFinite(rawStock) ? rawStock : 0;
       const cost_price = Number.isFinite(rawCost) ? rawCost : 0;
-      const categoryName = String(row['类目'] || '').trim();
+      const categoryName = String(row['类目'] || '').trim() || '未分类';
 
       let category_id = undefined;
 
-      // 处理分类
-      if (categoryName) {
-        const existingCategory = currentCategories.find(c => normalize(c.name) === normalize(categoryName));
-        if (existingCategory) {
-          category_id = existingCategory.id;
-        } else {
-          // 如果分类不存在，则创建新分类
-          const { data: newCategory, error } = await supabase
+      // 处理分类（类目为空时自动归入“未分类”）
+      const existingCategory = currentCategories.find(c => normalize(c.name) === normalize(categoryName));
+      if (existingCategory) {
+        category_id = existingCategory.id;
+      } else {
+        // 如果分类不存在，则创建新分类
+        const { data: newCategory, error } = await supabase
+          .from('categories')
+          .insert([{ name: categoryName, store_id: storeId }])
+          .select()
+          .single();
+          
+        if (!error && newCategory) {
+          category_id = newCategory.id;
+          currentCategories.push(newCategory); // 更新本地缓存
+          setCategories(prev => [...prev, newCategory]); // 更新状态
+        } else if ((error as any)?.code === '23505' || (error as any)?.status === 409) {
+          // 冲突回退：可能是并发或大小写差异，按名称重新查找
+          const { data: duplicatedCategory } = await supabase
             .from('categories')
-            .insert([{ name: categoryName, store_id: storeId }])
-            .select()
-            .single();
-            
-          if (!error && newCategory) {
-            category_id = newCategory.id;
-            currentCategories.push(newCategory); // 更新本地缓存
-            setCategories(prev => [...prev, newCategory]); // 更新状态
-          } else if ((error as any)?.code === '23505' || (error as any)?.status === 409) {
-            // 冲突回退：可能是并发或大小写差异，按名称重新查找
-            const { data: duplicatedCategory } = await supabase
-              .from('categories')
-              .select('id,name')
-              .eq('store_id', storeId)
-              .ilike('name', categoryName)
-              .is('deleted_at', null)
-              .limit(1);
+            .select('id,name')
+            .eq('store_id', storeId)
+            .ilike('name', categoryName)
+            .is('deleted_at', null)
+            .limit(1);
 
-            if (duplicatedCategory && duplicatedCategory[0]) {
-              category_id = duplicatedCategory[0].id;
-              if (!currentCategories.some(c => c.id === duplicatedCategory[0].id)) {
-                currentCategories.push(duplicatedCategory[0]);
-              }
+          if (duplicatedCategory && duplicatedCategory[0]) {
+            category_id = duplicatedCategory[0].id;
+            if (!currentCategories.some(c => c.id === duplicatedCategory[0].id)) {
+              currentCategories.push(duplicatedCategory[0]);
             }
           }
         }
