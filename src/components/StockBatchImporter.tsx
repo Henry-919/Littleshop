@@ -595,25 +595,25 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
       {open && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[120] flex items-center justify-center p-2 sm:p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl border border-slate-100 overflow-hidden max-h-[92vh] flex flex-col">
-            <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex items-start justify-between gap-3">
+            <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex items-start justify-between gap-3 sticky top-0 bg-white z-10">
               <div className="min-w-0">
                 <h3 className="text-base sm:text-lg font-bold text-slate-900">批量补库存（智能匹配）</h3>
                 <p className="text-[11px] sm:text-xs text-slate-500 mt-1">仅自动更新高置信度型号；低置信度将保留在复核列表，不自动写入</p>
               </div>
               <button
                 onClick={() => setOpen(false)}
-                className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all shrink-0"
+                className="p-2.5 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="p-4 sm:p-6 space-y-4 overflow-y-auto">
-              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+              <div className="flex flex-col sm:flex-row gap-2 sm:items-center sticky top-0 sm:top-auto bg-white/95 backdrop-blur-sm z-[5] pb-1">
                 <button
                   onClick={onPickFile}
                   disabled={processing}
-                  className="w-full sm:w-auto px-4 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 disabled:opacity-60 flex items-center justify-center gap-2"
+                  className="w-full sm:w-auto px-4 py-3 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 disabled:opacity-60 flex items-center justify-center gap-2"
                 >
                   {processing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
                   {processing ? '识别中...' : '选择 Excel 生成预览'}
@@ -621,7 +621,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                 <button
                   onClick={onPickImages}
                   disabled={processing}
-                  className="w-full sm:w-auto px-4 py-2.5 bg-indigo-50 text-indigo-700 rounded-xl text-sm font-bold hover:bg-indigo-100 disabled:opacity-60 flex items-center justify-center gap-2 border border-indigo-100"
+                  className="w-full sm:w-auto px-4 py-3 bg-indigo-50 text-indigo-700 rounded-xl text-sm font-bold hover:bg-indigo-100 disabled:opacity-60 flex items-center justify-center gap-2 border border-indigo-100"
                 >
                   <ImageUp className="w-4 h-4" />
                   上传图片识别生成预览
@@ -673,7 +673,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
 
                   <div className="max-h-56 overflow-y-auto space-y-2 pr-0.5">
                     {pendingAnalysis.previewItems.map((item, index) => (
-                      <div key={`${item.model}-${item.rowIndex}-${index}`} className="bg-white rounded-lg border border-sky-100 p-2 text-xs">
+                      <div key={`${item.model}-${item.rowIndex}-${index}`} className="bg-white rounded-lg border border-sky-100 p-2.5 text-xs">
                         <div className="font-medium text-slate-800 break-words">型号：{item.model} · 数量：{item.qty} · 行号：{item.rowIndex}</div>
                         <div className={`${item.status === 'auto' ? 'text-emerald-700' : 'text-amber-700'}`}>
                           {item.status === 'auto' ? '自动入库' : '待复核'}：{item.reason}
@@ -763,7 +763,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                       </div>
                       <div className="max-h-[42vh] sm:max-h-56 overflow-y-auto space-y-2 pr-0.5">
                         {filteredReviewItems.map((item) => (
-                          <div key={`${item.model}-${item.originalIndex}`} className="bg-white rounded-lg border border-amber-100 p-2 text-xs">
+                          <div key={`${item.model}-${item.originalIndex}`} className="bg-white rounded-lg border border-amber-100 p-2.5 text-xs">
                             <div className="font-medium text-slate-800 break-words">型号：{item.model} · 数量：{item.qty}{item.rowIndex ? ` · 行号：${item.rowIndex}` : ''}</div>
                             <div className="text-amber-700">原因：{item.reason}</div>
                             {item.bestCandidate && (
@@ -773,7 +773,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                               <select
                                 value={manualSelections[item.originalIndex] || ''}
                                 onChange={(e) => setManualSelections(prev => ({ ...prev, [item.originalIndex]: e.target.value }))}
-                                className="w-full px-2 py-2 border border-slate-200 rounded-md text-xs"
+                                className="w-full px-2 py-2.5 border border-slate-200 rounded-md text-xs"
                               >
                                 <option value="">请选择入库商品</option>
                                 {productIndex.map((product: any) => (
