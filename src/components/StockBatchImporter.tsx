@@ -570,7 +570,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
 
         for (let attempt = 1; attempt <= RETRIES; attempt++) {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 25000);
+          const timer = setTimeout(() => controller.abort(), 60000);
           try {
             const response = await fetch('/api/analyze-stock', {
               method: 'POST',
@@ -595,7 +595,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
               const snippet = text ? text.slice(0, 160) : '';
               const errMsg = `[${strategyLabel}] ${payload?.error || `HTTP ${response.status}`} ${snippet}`.trim();
               const lower = errMsg.toLowerCase();
-              const isRetriable = lower.includes('function_invocation_failed') || lower.includes('ai_timeout') || lower.includes('http 500') || lower.includes('http 504');
+              const isRetriable = lower.includes('function_invocation_failed') || lower.includes('ai_timeout') || lower.includes('http 500') || lower.includes('http 504') || lower.includes('http 502');
               if (isRetriable && attempt < RETRIES) {
                 await sleep(450 * attempt);
                 continue;

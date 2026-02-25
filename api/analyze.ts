@@ -3,7 +3,7 @@ import { Type } from '@google/genai';
 import { analyzeWithGemini, setCors } from './_shared/analyzeWithGemini.js';
 
 export const config = {
-  maxDuration: 300
+  maxDuration: 60
 };
 
 const schema = {
@@ -180,6 +180,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       schema,
       temperature: 0.05
     });
+    if (result.status === 504) {
+      return res.status(200).json({ items: [], error: 'ai_timeout' });
+    }
     if (result.status !== 200) {
       return res.status(result.status).json(result.body);
     }

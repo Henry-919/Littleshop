@@ -151,18 +151,22 @@ export function useStore(storeId?: string) {
     return !error;
   };
 
-  const addSale = async (productId: string, quantity: number, salesperson: string, date?: string) => {
+  const addSale = async (productId: string, quantity: number, salesperson: string, date?: string, overrideTotalAmount?: number) => {
     if (!storeId) return false;
     const product = products.find(p => p.id === productId);
     if (!product) return false;
 
     const newStock = product.stock - quantity;
     const saleDate = normalizeSaleDate(date);
+    // 优先使用传入的实际售价（发票识别价格），否则用商品标价
+    const finalTotalAmount = (overrideTotalAmount !== undefined && overrideTotalAmount > 0)
+      ? overrideTotalAmount
+      : product.price * quantity;
 
     const { data: saleData, error: saleError } = await supabase.from('sales').insert([{
       product_id: productId,
       quantity,
-      total_amount: product.price * quantity,
+      total_amount: finalTotalAmount,
       salesperson,
       date: saleDate,
       store_id: storeId

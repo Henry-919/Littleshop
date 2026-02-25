@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
 const preferredModels = ['gemini-flash-latest'];
-const MODEL_TIMEOUT_MS = 12000;
+const MODEL_TIMEOUT_MS = 30000;
 
 function normalizeMimeType(input) {
   const fallback = 'image/jpeg';

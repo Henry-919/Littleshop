@@ -31,7 +31,7 @@ type PreviewItem = ParsedReceiptItem & {
 type PendingAnalysis = {
   saleDate?: string;
   totalItems: number;
-  autoSales: Array<{ productId: string; productName: string; quantity: number }>;
+  autoSales: Array<{ productId: string; productName: string; quantity: number; unitPrice: number; totalAmount: number }>;
   reviewItems: ReviewItem[];
   previewItems: PreviewItem[];
 };
@@ -188,6 +188,7 @@ export function ReceiptScanner({ store }: { store: any }) {
   const [report, setReport] = useState<ReceiptReport | null>(null);
   const [manualSelections, setManualSelections] = useState<Record<number, string>>({});
   const [editableProductNames, setEditableProductNames] = useState<Record<number, string>>({});
+  const [editablePrices, setEditablePrices] = useState<Record<number, { unitPrice: string; totalAmount: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const [salesperson, setSalesperson] = useState('自动扫描');
   const [saleDateInput, setSaleDateInput] = useState('');
@@ -217,7 +218,7 @@ export function ReceiptScanner({ store }: { store: any }) {
   };
 
   const buildMatchPreview = (items: ParsedReceiptItem[], saleDate?: string) => {
-    const autoSales: Array<{ productId: string; productName: string; quantity: number }> = [];
+    const autoSales: Array<{ productId: string; productName: string; quantity: number; unitPrice: number; totalAmount: number }> = [];
     const reviewItems: ReviewItem[] = [];
     const previewItems: PreviewItem[] = [];
 
@@ -261,7 +262,9 @@ export function ReceiptScanner({ store }: { store: any }) {
       autoSales.push({
         productId: best.productId,
         productName: best.productName,
-        quantity: item.quantity
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalAmount: item.totalAmount
       });
       previewItems.push({
         ...item,
@@ -286,10 +289,16 @@ export function ReceiptScanner({ store }: { store: any }) {
       previewItems
     });
     const nextEditableNames: Record<number, string> = {};
+    const nextEditablePrices: Record<number, { unitPrice: string; totalAmount: string }> = {};
     previewItems.forEach((item, index) => {
       nextEditableNames[index] = item.productName;
+      nextEditablePrices[index] = {
+        unitPrice: item.unitPrice > 0 ? String(item.unitPrice) : '',
+        totalAmount: item.totalAmount > 0 ? String(item.totalAmount) : ''
+      };
     });
     setEditableProductNames(nextEditableNames);
+    setEditablePrices(nextEditablePrices);
     setSaleDateInput(saleDate || '');
     setReport(null);
   };
@@ -336,7 +345,7 @@ export function ReceiptScanner({ store }: { store: any }) {
 
         for (let attempt = 1; attempt <= RETRIES; attempt++) {
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 25000);
+          const timer = setTimeout(() => controller.abort(), 60000);
           try {
             const response = await fetch('/api/analyze', {
               method: 'POST',
@@ -356,7 +365,7 @@ export function ReceiptScanner({ store }: { store: any }) {
               const snippet = text ? text.slice(0, 160) : '';
               const errMsg = `[${strategyLabel}] ${payload?.error || `HTTP ${response.status}`} ${snippet}`.trim();
               const lower = errMsg.toLowerCase();
-              const isRetriable = lower.includes('function_invocation_failed') || lower.includes('ai_timeout') || lower.includes('http 500') || lower.includes('http 504');
+              const isRetriable = lower.includes('function_invocation_failed') || lower.includes('ai_timeout') || lower.includes('http 500') || lower.includes('http 504') || lower.includes('http 502');
               if (isRetriable && attempt < RETRIES) {
                 await sleep(450 * attempt);
                 continue;
@@ -491,6 +500,7 @@ export function ReceiptScanner({ store }: { store: any }) {
     setPendingAnalysis(null);
     setManualSelections({});
     setEditableProductNames({});
+    setEditablePrices({});
     setSaleDateInput('');
   };
 
@@ -499,8 +509,24 @@ export function ReceiptScanner({ store }: { store: any }) {
     setApplyingAuto(true);
     try {
       const finalSaleDate = saleDateInput || pendingAnalysis.saleDate;
-      for (const sale of pendingAnalysis.autoSales) {
-        await addSale(sale.productId, sale.quantity, salesperson, finalSaleDate || undefined);
+
+      // 遍历 previewItems，使用编辑后的价格
+      for (let idx = 0; idx < pendingAnalysis.previewItems.length; idx++) {
+        const item = pendingAnalysis.previewItems[idx];
+        if (item.status !== 'auto' || !item.bestCandidate) continue;
+
+        const editedPrice = editablePrices[idx];
+        const finalUnitPrice = editedPrice ? (parseFloat(editedPrice.unitPrice) || 0) : item.unitPrice;
+        const finalTotal = editedPrice ? (parseFloat(editedPrice.totalAmount) || 0) : item.totalAmount;
+        const saleTotal = finalTotal > 0 ? finalTotal : finalUnitPrice * item.quantity;
+
+        await addSale(
+          item.bestCandidate.productId,
+          item.quantity,
+          salesperson,
+          finalSaleDate || undefined,
+          saleTotal > 0 ? saleTotal : undefined
+        );
       }
 
       await store.fetchData?.();
@@ -540,7 +566,8 @@ export function ReceiptScanner({ store }: { store: any }) {
         const item = report.reviewItems[index];
         const productId = manualSelections[index];
         if (!item || !productId) continue;
-        await addSale(productId, item.quantity, salesperson, finalSaleDate || undefined);
+        const itemTotal = item.totalAmount > 0 ? item.totalAmount : item.unitPrice * item.quantity;
+        await addSale(productId, item.quantity, salesperson, finalSaleDate || undefined, itemTotal > 0 ? itemTotal : undefined);
       }
 
       const selectedSet = new Set(selectedIndexes);
@@ -697,8 +724,45 @@ export function ReceiptScanner({ store }: { store: any }) {
                       className="mt-1 w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm sm:text-xs"
                       placeholder="可编辑商品名，失焦后自动重新匹配"
                     />
-                    <div className="text-slate-500 mt-0.5">
-                      数量：{item.quantity} · 单价：￥{item.unitPrice} · 金额：￥{item.totalAmount}
+                    <div className="text-slate-500 mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span>数量：{item.quantity}</span>
+                      <span>·</span>
+                      <span className="inline-flex items-center gap-0.5">单价：￥
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editablePrices[idx]?.unitPrice ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditablePrices((prev) => {
+                              const cur = prev[idx] || { unitPrice: '', totalAmount: '' };
+                              const newUnitPrice = val;
+                              const parsed = parseFloat(val);
+                              const newTotal = Number.isFinite(parsed) ? String(+(parsed * item.quantity).toFixed(3)) : cur.totalAmount;
+                              return { ...prev, [idx]: { unitPrice: newUnitPrice, totalAmount: newTotal } };
+                            });
+                          }}
+                          className="w-16 px-1 py-0.5 border border-slate-200 rounded text-xs text-right"
+                          placeholder="0"
+                        />
+                      </span>
+                      <span>·</span>
+                      <span className="inline-flex items-center gap-0.5">金额：￥
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editablePrices[idx]?.totalAmount ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setEditablePrices((prev) => {
+                              const cur = prev[idx] || { unitPrice: '', totalAmount: '' };
+                              return { ...prev, [idx]: { ...cur, totalAmount: val } };
+                            });
+                          }}
+                          className="w-20 px-1 py-0.5 border border-slate-200 rounded text-xs text-right"
+                          placeholder="0"
+                        />
+                      </span>
                     </div>
                     {item.hasMathDiscrepancy && (
                       <div className="text-amber-600 mt-1">⚠️ 金额校验异常</div>
@@ -787,6 +851,7 @@ export function ReceiptScanner({ store }: { store: any }) {
                   setReport(null);
                   setManualSelections({});
                   setEditableProductNames({});
+                  setEditablePrices({});
                   setSaleDateInput('');
                   setImages([]);
                 }}

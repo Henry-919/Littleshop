@@ -2,7 +2,7 @@ import { Type } from '@google/genai';
 import { analyzeWithGemini, setCors } from './_shared/analyzeWithGemini.js';
 
 export const config = {
-  maxDuration: 300
+  maxDuration: 60
 };
 
 const schema = {
@@ -43,7 +43,7 @@ export default async function handler(req: any, res: any) {
       temperature: 0.05
     });
 
-    if (result.status === 504) {
+    if (result.status === 504 || result.status === 502) {
       return res.status(200).json({ items: [], error: 'ai_timeout' });
     }
 

@@ -1,10 +1,10 @@
 {
   "functions": {
     "api/analyze.ts": {
-      "maxDuration": 300
+      "maxDuration": 60
     },
     "api/analyze-stock.ts": {
-      "maxDuration": 300
+      "maxDuration": 60
     }
   }
 }
