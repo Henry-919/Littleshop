@@ -19,7 +19,6 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   const [searchTerm, setSearchTerm] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>(null);
-  const [editingStock, setEditingStock] = useState<{ [key: string]: number }>({});
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [addFormData, setAddFormData] = useState({
     name: '',
@@ -115,6 +114,11 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     return `${days}天`;
   };
 
+  const formatCostPrice = (value?: number) => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+    return Number(value).toFixed(2);
+  };
+
   const getCategoryName = (categoryId?: string) => {
     if (!categoryId) return '未分类';
     return categories.find(c => c.id === categoryId)?.name || '未分类';
@@ -166,13 +170,21 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   // 行内编辑逻辑
   const startEditing = (p: any) => {
     setEditingId(p.id);
-    setEditFormData({ ...p });
+    setEditFormData({ ...p, category_id: p.category_id || '' });
   };
 
   const handleSaveEdit = async () => {
     if (!editingId || !updateProduct) return;
-    const success = await updateProduct(editingId, editFormData);
-    if (success) setEditingId(null);
+    const payload = {
+      ...editFormData,
+      stock: Number.isFinite(Number(editFormData?.stock)) ? Number(editFormData.stock) : 0,
+      category_id: editFormData?.category_id || undefined
+    };
+    const success = await updateProduct(editingId, payload);
+    if (success) {
+      setEditingId(null);
+      setEditFormData(null);
+    }
   };
 
   const handleCancelEdit = () => {
@@ -256,28 +268,6 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
       setAddFormData({ name: '', cost_price: '', stock: '', category_id: '' });
       setIsAddOpen(false);
     }
-  };
-
-  const handleStockChange = (id: string, value: number) => {
-    setEditingStock(prev => ({ ...prev, [id]: value }));
-  };
-
-  const saveStockChange = async (id: string) => {
-    const newStock = editingStock[id];
-    if (newStock !== undefined) {
-      await updateProduct(id, { stock: newStock });
-      setEditingStock(prev => {
-        const { [id]: _, ...rest } = prev;
-        return rest;
-      });
-    }
-  };
-
-  const cancelStockEditing = (id: string) => {
-    setEditingStock(prev => {
-      const { [id]: _, ...rest } = prev;
-      return rest;
-    });
   };
 
   const deletedTotalPages = Math.max(1, Math.ceil(deletedProducts.length / DELETED_PAGE_SIZE));
@@ -434,18 +424,22 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
             <div key={product.id} className={`rounded-2xl p-4 space-y-3 shadow-sm border ${Number(product.stock) < 0 ? 'bg-rose-50/40 border-rose-200' : 'bg-white border-slate-100'}`}>
               <div className="flex items-start justify-between gap-3">
                 {editingId === product.id ? (
-                  <div className="flex-1 flex items-center gap-2">
+                  <div className="flex-1 space-y-2">
                     <input
                       className="border border-slate-200 rounded-lg px-2 py-1 w-full text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                       value={editFormData.name}
                       onChange={e => setEditFormData({ ...editFormData, name: e.target.value })}
                     />
-                    <button onClick={handleSaveEdit} className="p-2 bg-emerald-500 text-white rounded-lg">
-                      <Check className="w-4 h-4" />
-                    </button>
-                    <button onClick={handleCancelEdit} className="p-2 bg-slate-100 text-slate-700 rounded-lg">
-                      <RotateCcw className="w-4 h-4" />
-                    </button>
+                    <select
+                      value={editFormData.category_id || ''}
+                      onChange={e => setEditFormData({ ...editFormData, category_id: e.target.value })}
+                      className="border border-slate-200 rounded-lg px-2 py-1 w-full text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    >
+                      <option value="">未分类</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
                   </div>
                 ) : (
                   <>
@@ -453,13 +447,6 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                       <p className="font-bold text-slate-800 truncate">{product.name}</p>
                       <p className="text-xs text-slate-500 mt-1">分类：{getCategoryName(product.category_id)}</p>
                     </div>
-                    <button
-                      onClick={() => startEditing(product)}
-                      className="p-1.5 bg-slate-100 text-slate-600 rounded-lg"
-                      title="编辑名称"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
                   </>
                 )}
               </div>
@@ -467,11 +454,11 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="bg-slate-50 rounded-lg p-2 text-center">
                   <p className="text-[11px] text-slate-500">库存</p>
-                  {editingStock[product.id] !== undefined ? (
+                  {editingId === product.id ? (
                     <input
                       type="number"
-                      value={editingStock[product.id]}
-                      onChange={(e) => handleStockChange(product.id, parseInt(e.target.value, 10))}
+                      value={editFormData.stock ?? ''}
+                      onChange={(e) => setEditFormData({ ...editFormData, stock: e.target.value })}
                       className="mt-1 w-full px-2 py-1 border border-slate-200 rounded-lg text-center font-mono font-bold text-slate-700"
                     />
                   ) : (
@@ -480,7 +467,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 </div>
                 <div className="bg-slate-50 rounded-lg p-2 text-center">
                   <p className="text-[11px] text-slate-500">成本价</p>
-                  <p className="font-mono font-bold text-slate-700 mt-1">{product.cost_price ?? '-'}</p>
+                  <p className="font-mono font-bold text-slate-700 mt-1">{formatCostPrice(product.cost_price)}</p>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-2 text-center">
                   <p className="text-[11px] text-slate-500">入库时间</p>
@@ -493,16 +480,16 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               </div>
 
               <div className="flex items-center gap-2">
-                {editingStock[product.id] !== undefined ? (
+                {editingId === product.id ? (
                   <>
                     <button
-                      onClick={() => saveStockChange(product.id)}
+                      onClick={handleSaveEdit}
                       className="flex-1 px-3 py-2 bg-emerald-500 text-white rounded-lg font-bold text-xs"
                     >
-                      保存库存
+                      保存
                     </button>
                     <button
-                      onClick={() => cancelStockEditing(product.id)}
+                      onClick={handleCancelEdit}
                       className="flex-1 px-3 py-2 bg-slate-100 text-slate-700 rounded-lg font-bold text-xs"
                     >
                       取消
@@ -511,10 +498,10 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 ) : (
                   <>
                     <button
-                      onClick={() => handleStockChange(product.id, product.stock)}
+                      onClick={() => startEditing(product)}
                       className="flex-1 px-3 py-2 bg-slate-900 text-white rounded-lg font-bold text-xs"
                     >
-                      编辑库存
+                      编辑
                     </button>
                     <button
                       onClick={() => {
@@ -569,7 +556,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                         <button
                           onClick={handleSaveEdit}
                           className="p-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all"
-                          title="保存名称"
+                          title="保存"
                         >
                           <Check className="w-4 h-4" />
                         </button>
@@ -582,30 +569,34 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                         </button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-700 truncate block max-w-[180px]" title={product.name}>{product.name}</span>
-                        <button
-                          onClick={() => startEditing(product)}
-                          className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all"
-                          title="编辑名称"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                      <span className="font-bold text-slate-700 truncate block max-w-[180px]" title={product.name}>{product.name}</span>
                     )}
                   </td>
                   <td className="px-6 py-4">
-                    <span className="text-slate-500 whitespace-nowrap truncate block max-w-[120px]" title={getCategoryName(product.category_id)}>
-                      {getCategoryName(product.category_id)}
-                    </span>
+                    {editingId === product.id ? (
+                      <select
+                        value={editFormData.category_id || ''}
+                        onChange={(e) => setEditFormData({ ...editFormData, category_id: e.target.value })}
+                        className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                      >
+                        <option value="">未分类</option>
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-slate-500 whitespace-nowrap truncate block max-w-[120px]" title={getCategoryName(product.category_id)}>
+                        {getCategoryName(product.category_id)}
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-center">
-                    {editingStock[product.id] !== undefined ? (
+                    {editingId === product.id ? (
                       <div className="flex justify-center">
                         <input
                           type="number"
-                          value={editingStock[product.id]}
-                          onChange={(e) => handleStockChange(product.id, parseInt(e.target.value, 10))}
+                          value={editFormData.stock ?? ''}
+                          onChange={(e) => setEditFormData({ ...editFormData, stock: e.target.value })}
                           className="w-24 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center focus:ring-2 focus:ring-emerald-500 outline-none"
                         />
                       </div>
@@ -615,7 +606,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                   </td>
                   <td className="px-6 py-4 text-center">
                     <span className="font-mono font-bold text-slate-700 inline-block">
-                      {product.cost_price ?? '-'}
+                      {formatCostPrice(product.cost_price)}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center">
@@ -629,16 +620,16 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    {editingStock[product.id] !== undefined ? (
+                    {editingId === product.id ? (
                       <div className="flex items-center justify-center gap-2">
                         <button
-                          onClick={() => saveStockChange(product.id)}
+                          onClick={handleSaveEdit}
                           className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg font-bold text-xs hover:bg-emerald-600 transition-all border border-emerald-500 shadow-sm"
                         >
                           保存
                         </button>
                         <button
-                          onClick={() => cancelStockEditing(product.id)}
+                          onClick={handleCancelEdit}
                           className="px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg font-bold text-xs hover:bg-slate-200 transition-all border border-slate-200 shadow-sm"
                         >
                           取消
@@ -647,7 +638,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                     ) : (
                       <div className="flex items-center justify-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => handleStockChange(product.id, product.stock)}
+                          onClick={() => startEditing(product)}
                           className="px-3 py-1.5 bg-slate-900 text-white rounded-lg font-bold text-xs hover:bg-slate-800 transition-all border border-slate-900 shadow-sm"
                         >
                           编辑
