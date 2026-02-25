@@ -358,7 +358,7 @@ async function geminiFallback(
     prompt: buildAnalyzePrompt(candidates),
     schema: fullSchema,
     temperature: 0.05,
-    models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite']
+    models: ['gemini-2.0-flash', 'gemini-2.5-flash']
   });
   if (result.status === 504) {
     return { status: 200, body: { items: [], error: 'ai_timeout' } };
@@ -398,7 +398,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       prompt: OCR_PROMPT,
       schema: ocrSchema,
       temperature: 0.05,
-      models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite']
+      models: ['gemini-2.0-flash', 'gemini-2.5-flash']
     });
 
     if (ocrResult.status !== 200 || !ocrResult.body?.text) {
