@@ -1,11 +1,11 @@
 {
   "functions": {
     "api/analyze.ts": {
-      "runtime": "@vercel/node",
+      "runtime": "nodejs20.x",
       "maxDuration": 60
     },
     "api/analyze-stock.ts": {
-      "runtime": "@vercel/node",
+      "runtime": "nodejs20.x",
       "maxDuration": 60
     }
   }
