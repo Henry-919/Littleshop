@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X } from 'lucide-react';
+import heic2any from 'heic2any';
 
 type MatchCandidate = {
   productId: string;
@@ -132,6 +133,44 @@ const compressImageDataUrl = (dataUrl: string): Promise<string> => {
   });
 };
 
+const fileToDataUrl = (file: File | Blob) => {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => resolve(String(ev.target?.result || ''));
+    reader.onerror = () => reject(new Error('图片读取失败'));
+    reader.readAsDataURL(file);
+  });
+};
+
+const isHeicLike = (file: File) => {
+  const type = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  return type.includes('heic') || type.includes('heif') || /\.(heic|heif)$/.test(name);
+};
+
+const toJpegDataUrlIfNeeded = async (file: File) => {
+  if (!isHeicLike(file)) {
+    return fileToDataUrl(file);
+  }
+
+  try {
+    const converted = await heic2any({
+      blob: file,
+      toType: 'image/jpeg',
+      quality: 0.9
+    });
+
+    const jpegBlob = Array.isArray(converted) ? converted[0] : converted;
+    if (!(jpegBlob instanceof Blob)) {
+      throw new Error('HEIC 转换失败');
+    }
+
+    return fileToDataUrl(jpegBlob);
+  } catch {
+    throw new Error('HEIC 图片转换失败，请在 iPhone 相机设置中选择“兼容性最佳”后重试');
+  }
+};
+
 export function ReceiptScanner({ store }: { store: any }) {
   const { products, addSale } = store;
   const [images, setImages] = useState<string[]>([]);
@@ -159,18 +198,12 @@ export function ReceiptScanner({ store }: { store: any }) {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     setLoading(true);
+    setError(null);
     try {
-      const readers = files.map(file => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve(ev.target?.result as string);
-          reader.readAsDataURL(file);
-        });
-      });
-      const base64Images = await Promise.all(readers);
+      const base64Images = await Promise.all(files.map((file) => toJpegDataUrlIfNeeded(file)));
       setImages(prev => [...prev, ...base64Images]);
     } catch (err) {
-      setError("图片读取失败");
+      setError((err as any)?.message || '图片读取失败');
     } finally {
       setLoading(false);
     }
