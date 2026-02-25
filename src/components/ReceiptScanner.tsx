@@ -329,31 +329,57 @@ export function ReceiptScanner({ store }: { store: any }) {
       const failureMessages: string[] = [];
       const candidateProducts = Array.from(new Set((productIndex || []).map((item: any) => String(item?.name || '').trim()).filter(Boolean))).slice(0, 120);
 
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
       const callAnalyzeApi = async (payloadDataUrl: string, strategyLabel: string) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 70000);
-        const response = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Data: payloadDataUrl, mimeType: payloadDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', candidateProducts }),
-          signal: controller.signal
-        });
-        clearTimeout(timer);
-        const text = await response.text();
-        let payload: any = null;
-        try {
-          payload = text ? JSON.parse(text) : null;
-        } catch {
-          payload = null;
+        const RETRIES = 2;
+
+        for (let attempt = 1; attempt <= RETRIES; attempt++) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 25000);
+          try {
+            const response = await fetch('/api/analyze', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ base64Data: payloadDataUrl, mimeType: payloadDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', candidateProducts }),
+              signal: controller.signal
+            });
+            clearTimeout(timer);
+            const text = await response.text();
+            let payload: any = null;
+            try {
+              payload = text ? JSON.parse(text) : null;
+            } catch {
+              payload = null;
+            }
+            if (!response.ok) {
+              const snippet = text ? text.slice(0, 160) : '';
+              const errMsg = `[${strategyLabel}] ${payload?.error || `HTTP ${response.status}`} ${snippet}`.trim();
+              const lower = errMsg.toLowerCase();
+              const isRetriable = lower.includes('function_invocation_failed') || lower.includes('ai_timeout') || lower.includes('http 500') || lower.includes('http 504');
+              if (isRetriable && attempt < RETRIES) {
+                await sleep(450 * attempt);
+                continue;
+              }
+              throw new Error(errMsg);
+            }
+            if (!payload) {
+              throw new Error(`[${strategyLabel}] 服务端返回了非 JSON 内容`);
+            }
+            return payload;
+          } catch (err: any) {
+            clearTimeout(timer);
+            const msg = String(err?.message || err || '').toLowerCase();
+            const isRetriable = msg.includes('abort') || msg.includes('timeout') || msg.includes('function_invocation_failed');
+            if (isRetriable && attempt < RETRIES) {
+              await sleep(450 * attempt);
+              continue;
+            }
+            throw err;
+          }
         }
-        if (!response.ok) {
-          const snippet = text ? text.slice(0, 160) : '';
-          throw new Error(`[${strategyLabel}] ${payload?.error || `HTTP ${response.status}`} ${snippet}`.trim());
-        }
-        if (!payload) {
-          throw new Error(`[${strategyLabel}] 服务端返回了非 JSON 内容`);
-        }
-        return payload;
+
+        throw new Error(`[${strategyLabel}] AI 解析失败`);
       };
 
       const isParseRelatedError = (error: any) => {

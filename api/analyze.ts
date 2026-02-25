@@ -110,14 +110,6 @@ const scoreNameSimilarity = (source: string, target: string) => {
   return maxLen === 0 ? 0 : Math.max(0, 1 - levenshteinDistance(sourceNorm, targetNorm) / maxLen);
 };
 
-const modelCodeScore = (name: string) => {
-  const value = String(name || '');
-  const digits = (value.match(/\d/g) || []).length;
-  const letters = (value.match(/[a-z]/gi) || []).length;
-  const hyphen = (value.match(/[-_]/g) || []).length;
-  return digits * 1.3 + hyphen * 0.6 - letters * 0.45;
-};
-
 const normalizeItems = (items: any[], candidates: string[]) => {
   return (Array.isArray(items) ? items : [])
     .map((item: any) => {
@@ -178,7 +170,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? candidateProducts
           .map((item: any) => String(item || '').trim())
           .filter(Boolean)
-          .slice(0, 120)
+          .slice(0, 40)
       : [];
 
     const result = await analyzeWithGemini({
@@ -193,47 +185,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const body = result.body || {};
-    let normalizedItems = normalizeItems(body.items, candidates);
-    let normalizedDate = normalizeInvoiceDate(body.saleDate);
-
-    const needRefineItems = normalizedItems.some((item: any) => {
-      const digitCount = (String(item.productName).match(/\d/g) || []).length;
-      return digitCount > 0 && digitCount < 4;
-    });
-    const needRefineDate = !normalizedDate;
-
-    if (needRefineItems || needRefineDate) {
-      const refinePrompt =
-        '复核任务：请再次读取同一张发票，仅提取表格已填写行。\n' +
-        '重点：DESCRIPTION 常为型号码（数字+连字符，如 41901-2、653D-2），不要将印章或其它区域误读为商品名。\n' +
-        '日期只取顶部 Date 字段的手写日期，忽略印章日期。\n' +
-        '仅输出 JSON。';
-
-      const refined = await analyzeWithGemini({
-        base64Data,
-        mimeType,
-        prompt: refinePrompt,
-        schema,
-        temperature: 0
-      });
-
-      if (refined.status === 200) {
-        const refinedBody = refined.body || {};
-        const refinedItems = normalizeItems(refinedBody.items, candidates);
-        if (refinedItems.length) {
-          const firstA = normalizedItems[0];
-          const firstB = refinedItems[0];
-          if (!firstA || (firstB && modelCodeScore(firstB.productName) > modelCodeScore(firstA.productName))) {
-            normalizedItems = refinedItems;
-          }
-        }
-
-        const refinedDate = normalizeInvoiceDate(refinedBody.saleDate);
-        if (!normalizedDate && refinedDate) {
-          normalizedDate = refinedDate;
-        }
-      }
-    }
+    const normalizedItems = normalizeItems(body.items, candidates);
+    const normalizedDate = normalizeInvoiceDate(body.saleDate);
 
     return res.status(200).json({
       items: normalizedItems,
