@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
-const preferredModels = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+const preferredModels = ['gemini-flash-latest', 'gemini-2.5-flash'];
+const MODEL_TIMEOUT_MS = 18000;
 
 type AnalyzeInput = {
   base64Data: string;
@@ -85,9 +86,21 @@ export async function analyzeWithGemini({
   let lastError: any = null;
   let response: any = null;
 
+  const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number) => {
+    let timer: any;
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('ai_timeout')), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   for (const modelName of preferredModels) {
     try {
-      response = await ai.models.generateContent({
+      response = await withTimeout(ai.models.generateContent({
         model: modelName,
         contents: [
           {
@@ -109,11 +122,14 @@ export async function analyzeWithGemini({
           responseSchema: schema,
           temperature
         }
-      });
+      }), MODEL_TIMEOUT_MS);
       if (response) break;
     } catch (err: any) {
       lastError = err;
       const msg = (err?.message || '').toLowerCase();
+      if (msg.includes('ai_timeout')) {
+        continue;
+      }
       if (msg.includes('rate') || (err?.response && err.response.status === 429)) {
         return { status: 429, body: { error: 'rate_limited', details: err.message || err } };
       }
@@ -121,6 +137,10 @@ export async function analyzeWithGemini({
   }
 
   if (!response) {
+    const msg = String(lastError?.message || '').toLowerCase();
+    if (msg.includes('ai_timeout')) {
+      return { status: 504, body: { error: 'ai_timeout', details: 'AI 响应超时，请稍后重试' } };
+    }
     return { status: 502, body: { error: 'ai_call_failed', details: lastError?.message || 'unknown' } };
   }
 

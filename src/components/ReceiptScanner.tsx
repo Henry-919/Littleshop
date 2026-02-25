@@ -115,8 +115,8 @@ const compressImageDataUrl = (
     img.src = dataUrl;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const MAX_WIDTH = options?.maxWidth || 1400;
-      const JPEG_QUALITY = typeof options?.jpegQuality === 'number' ? options.jpegQuality : 0.8;
+      const MAX_WIDTH = options?.maxWidth || 1200;
+      const JPEG_QUALITY = typeof options?.jpegQuality === 'number' ? options.jpegQuality : 0.72;
       let width = img.width;
       let height = img.height;
 
