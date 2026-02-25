@@ -6,7 +6,7 @@ export const config = {
   maxDuration: 60
 };
 
-const schema = {
+const fullSchema = {
   type: Type.OBJECT,
   properties: {
     items: {
@@ -27,6 +27,27 @@ const schema = {
   },
   required: ['items']
 };
+
+/* ── Gemini OCR schema (Phase 1: extract text only) ── */
+const ocrSchema = {
+  type: Type.OBJECT,
+  properties: {
+    text: { type: Type.STRING }
+  },
+  required: ['text']
+};
+
+/* ── OCR prompt for Gemini ── */
+const OCR_PROMPT =
+  '请完整提取图片中手写发票的所有文字内容。\n' +
+  '\n' +
+  '要求：\n' +
+  '1. 逐行提取，保留表格结构，用 | 分隔各列\n' +
+  '2. 包含：发票标题、Date日期、每一行商品（ITEM编号、DESCRIPTION描述、QTY数量、RATE单价、AMOUNT金额含R.O.和Bz.列）\n' +
+  '3. 忠实提取手写内容，不解读不修改\n' +
+  '4. 同一ITEM编号下的多行描述都要提取\n' +
+  '5. 忽略图中叠放的银行回单、POS刷卡单据上的文字\n' +
+  '6. 提取底部的 Total/Grand Total 行';
 
 const toHalfWidthDigits = (value: string) =>
   value
@@ -223,6 +244,136 @@ const buildAnalyzePrompt = (candidateProducts: string[]) => {
   );
 };
 
+/* ── MiniMax M2.5 structured parsing (Phase 2) ── */
+async function parseWithMiniMax(
+  ocrText: string,
+  candidates: string[]
+): Promise<{ status: number; body: any }> {
+  const apiKey = process.env.MINIMAX_API_KEY;
+  if (!apiKey) {
+    return { status: 500, body: { error: 'MINIMAX_API_KEY is not configured' } };
+  }
+
+  const candidateBlock = candidates.length
+    ? `\n\n已知商品列表（请将识别结果优先匹配到这些名称，但不要强行匹配不相关的商品）：\n${candidates.map((name, i) => `${i + 1}. ${name}`).join('\n')}`
+    : '';
+
+  const systemPrompt =
+    '你是一个专业的发票数据提取助手。根据OCR提取的发票原始文字，解析出结构化JSON数据。仅输出JSON，不输出任何解释文字。';
+
+  const userPrompt =
+    '以下是从 WANG YUWU INTERNATIONAL SPC（阿曼）手写现金发票(CASH INVOICE)中OCR提取的文字：\n\n' +
+    '```\n' + ocrText + '\n```\n\n' +
+    '## 解析规则\n\n' +
+    '### 商品名称 (productName)\n' +
+    '- 来自 DESCRIPTION 列\n' +
+    '- 通常是产品型号编码，如：M-2504、F802A-1-5、K-05-2、41901-2、653D-2、Ly-159-2\n' +
+    '- 同一 ITEM 下的多行描述用空格拼接，如 "M-2504 (Silver)" + "Small-Ward" → "M-2504 (Silver) Small-Ward"\n' +
+    '- 手写OCR易混淆：0↔O、1↔l↔I、5↔S、8↔B、2↔Z\n' +
+    '- 保留原始大小写、连字符、括号\n\n' +
+    '### 数量、价格、金额\n' +
+    '- QTY → quantity（整数）\n' +
+    '- RATE → unitPrice（R.O.单位）\n' +
+    '- AMOUNT → totalAmount：\n' +
+    '  - 仅 R.O.值 → 直接取该数字\n' +
+    '  - Bz.也有值 → totalAmount = R.O. + Bz./1000（如 36 R.O. + 500 Bz. = 36.5）\n' +
+    '- QTY × RATE ≠ AMOUNT 时以 AMOUNT 为准\n\n' +
+    '### 日期 (saleDate)\n' +
+    '- 取 "Date:" 字段日期，输出 DD-MM-YYYY（2位年份补全：26→2026）\n\n' +
+    '### 严格输出 JSON\n' +
+    '```json\n' +
+    '{"items":[{"productName":"xxx","unitPrice":0.0,"quantity":1,"totalAmount":0.0}],"saleDate":"DD-MM-YYYY"}\n' +
+    '```\n' +
+    '- 每个有效商品行都必须输出（QTY列有数字即有效）\n' +
+    '- 跳过空行、印章、签名、Total汇总行' +
+    candidateBlock;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
+    const resp = await fetch('https://api.minimaxi.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'MiniMax-M2.5',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.15,
+        max_completion_tokens: 4096
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      console.error('[MiniMax] API error:', resp.status, errText.slice(0, 500));
+      return {
+        status: 502,
+        body: { error: 'MiniMax API error', details: `${resp.status}` }
+      };
+    }
+
+    const data = await resp.json();
+    let content: string = data?.choices?.[0]?.message?.content || '';
+
+    // M2.5 is a reasoning model — strip <think>…</think> blocks
+    content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error('[MiniMax] No JSON in response:', content.slice(0, 500));
+      return {
+        status: 502,
+        body: { error: 'MiniMax returned non-JSON', snippet: content.slice(0, 300) }
+      };
+    }
+
+    return { status: 200, body: JSON.parse(jsonMatch[0]) };
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      return { status: 504, body: { error: 'ai_timeout', details: 'MiniMax 响应超时' } };
+    }
+    console.error('[MiniMax] error:', err);
+    return { status: 502, body: { error: 'MiniMax call failed', details: err?.message } };
+  }
+}
+
+/* ── Gemini-only fallback (original full analysis) ── */
+async function geminiFallback(
+  base64Data: string,
+  mimeType: string | undefined,
+  candidates: string[]
+): Promise<{ status: number; body: any }> {
+  const result = await analyzeWithGemini({
+    base64Data,
+    mimeType,
+    prompt: buildAnalyzePrompt(candidates),
+    schema: fullSchema,
+    temperature: 0.05,
+    models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite']
+  });
+  if (result.status === 504) {
+    return { status: 200, body: { items: [], error: 'ai_timeout' } };
+  }
+  if (result.status !== 200) return result;
+  const body = result.body || {};
+  return {
+    status: 200,
+    body: {
+      items: normalizeItems(body.items, candidates),
+      saleDate: normalizeInvoiceDate(body.saleDate)
+    }
+  };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -240,22 +391,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .slice(0, 120)
       : [];
 
-    const result = await analyzeWithGemini({
+    /* ── Phase 1: Gemini OCR — extract raw text from image ── */
+    const ocrResult = await analyzeWithGemini({
       base64Data,
       mimeType,
-      prompt: buildAnalyzePrompt(candidates),
-      schema,
+      prompt: OCR_PROMPT,
+      schema: ocrSchema,
       temperature: 0.05,
       models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite']
     });
-    if (result.status === 504) {
-      return res.status(200).json({ items: [], error: 'ai_timeout' });
-    }
-    if (result.status !== 200) {
-      return res.status(result.status).json(result.body);
+
+    if (ocrResult.status !== 200 || !ocrResult.body?.text) {
+      console.warn('[api/analyze] Gemini OCR failed, falling back to Gemini full analysis');
+      const fb = await geminiFallback(base64Data, mimeType, candidates);
+      return res.status(fb.status).json(fb.body);
     }
 
-    const body = result.body || {};
+    /* ── Phase 2: MiniMax M2.5 — structured parsing of OCR text ── */
+    const parseResult = await parseWithMiniMax(ocrResult.body.text, candidates);
+
+    if (parseResult.status !== 200) {
+      console.warn('[api/analyze] MiniMax failed, falling back to Gemini:', parseResult.body?.error);
+      const fb = await geminiFallback(base64Data, mimeType, candidates);
+      return res.status(fb.status).json(fb.body);
+    }
+
+    /* ── Post-processing ── */
+    const body = parseResult.body || {};
     const normalizedItems = normalizeItems(body.items, candidates);
     const normalizedDate = normalizeInvoiceDate(body.saleDate);
 
