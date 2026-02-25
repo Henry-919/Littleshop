@@ -226,65 +226,65 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
   };
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-4 sm:space-y-6 pb-10">
       {/* 欢迎头部 */}
-      <div className="p-6 bg-slate-900 rounded-2xl shadow-lg text-white relative overflow-hidden">
+      <div className="p-4 sm:p-6 bg-slate-900 rounded-2xl shadow-lg text-white relative overflow-hidden">
         <div className="relative z-10">
-          <h2 className="text-2xl font-bold">经营看板</h2>
-          <p className="text-slate-400 mt-1 text-sm">今日经营状况与智能库存预测</p>
+          <h2 className="text-xl sm:text-2xl font-bold">经营看板</h2>
+          <p className="text-slate-400 mt-1 text-xs sm:text-sm">今日经营状况与智能库存预测</p>
         </div>
-        <PackageSearch className="absolute right-[-20px] bottom-[-20px] w-40 h-40 text-white/5 rotate-12" />
+        <PackageSearch className="absolute right-[-20px] bottom-[-20px] w-28 sm:w-40 h-28 sm:h-40 text-white/5 rotate-12" />
       </div>
 
       {/* 核心指标卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5 hover:shadow-md transition-shadow">
-          <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl">
-            <TrendingUp className="w-8 h-8" />
+      <div className="grid grid-cols-2 md:grid-cols-2 gap-3 sm:gap-6">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3 sm:gap-5 hover:shadow-md transition-shadow">
+          <div className="p-2.5 sm:p-4 bg-emerald-50 text-emerald-600 rounded-xl sm:rounded-2xl shrink-0">
+            <TrendingUp className="w-5 h-5 sm:w-8 sm:h-8" />
           </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">总营收额</p>
-            <p className="text-3xl font-black text-slate-900">￥{stats.totalRevenue.toLocaleString()}</p>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-slate-500">总营收额</p>
+            <p className="text-lg sm:text-3xl font-black text-slate-900 truncate">￥{stats.totalRevenue.toLocaleString()}</p>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-5 hover:shadow-md transition-shadow">
-          <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl">
-            <ShoppingBag className="w-8 h-8" />
+        <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3 sm:gap-5 hover:shadow-md transition-shadow">
+          <div className="p-2.5 sm:p-4 bg-indigo-50 text-indigo-600 rounded-xl sm:rounded-2xl shrink-0">
+            <ShoppingBag className="w-5 h-5 sm:w-8 sm:h-8" />
           </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500">累计订单</p>
-            <p className="text-3xl font-black text-slate-900">{stats.totalOrders} <span className="text-sm font-normal text-slate-400">单</span></p>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-slate-500">累计订单</p>
+            <p className="text-lg sm:text-3xl font-black text-slate-900">{stats.totalOrders} <span className="text-[10px] sm:text-sm font-normal text-slate-400">单</span></p>
           </div>
         </div>
       </div>
 
       {/* 总营收额模块 */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-emerald-500" />
-            <h3 className="font-bold text-slate-900">总营收额</h3>
+            <h3 className="font-bold text-slate-900 text-sm sm:text-base">总营收额</h3>
           </div>
-          <span className="text-xs text-slate-400">点击月份查看明细</span>
+          <span className="text-[10px] sm:text-xs text-slate-400">点击月份查看明细</span>
         </div>
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
           {monthlySales.length === 0 ? (
             <div className="text-slate-400 text-sm text-center py-6">暂无销售数据</div>
           ) : (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
                 {monthlySales.map((month) => (
                   <button
                     key={month.monthKey}
                     onClick={() => setSelectedMonth(month.monthKey)}
-                    className={`text-left p-4 rounded-2xl border transition-all shadow-sm hover:shadow-md
+                    className={`text-left p-3 sm:p-4 rounded-xl sm:rounded-2xl border transition-all shadow-sm hover:shadow-md
                       ${selectedMonth === month.monthKey
                         ? 'border-emerald-500 bg-emerald-50'
                         : 'border-slate-100 bg-white'
                       }`}
                   >
-                    <div className="text-xs text-slate-400">{formatMonthLabel(month.monthKey)}</div>
-                    <div className="text-xl font-black text-slate-900 mt-1">
+                    <div className="text-[10px] sm:text-xs text-slate-400">{formatMonthLabel(month.monthKey)}</div>
+                    <div className="text-base sm:text-xl font-black text-slate-900 mt-1">
                       ￥{month.total.toLocaleString()}
                     </div>
                   </button>
@@ -293,15 +293,86 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
 
               {selectedMonthData && (
                 <div className="rounded-2xl border border-slate-100 overflow-hidden">
-                  <div className="p-4 bg-slate-50/50 flex items-center justify-between">
-                    <div className="font-bold text-slate-900">
+                  <div className="p-3 sm:p-4 bg-slate-50/50 flex items-center justify-between">
+                    <div className="font-bold text-slate-900 text-sm sm:text-base">
                       {formatMonthLabel(selectedMonthData.monthKey)}每日销售额
                     </div>
-                    <div className="text-sm text-slate-500">
-                      本月合计：￥{selectedMonthData.total.toLocaleString()}
+                    <div className="text-xs sm:text-sm text-slate-500">
+                      合计：￥{selectedMonthData.total.toLocaleString()}
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+
+                  {/* Mobile: Card view for daily sales */}
+                  <div className="sm:hidden divide-y divide-slate-100">
+                    {selectedMonthData.daily.map((day) => {
+                      const inputs = paymentInputs[day.date] || { card: '', cash: '', transfer: '' };
+                      const card = Number(inputs.card) || 0;
+                      const cash = Number(inputs.cash) || 0;
+                      const transfer = Number(inputs.transfer) || 0;
+                      const sum = card + cash + transfer;
+                      const matched = Math.abs(sum - day.amount) < 0.01;
+                      return (
+                        <div key={day.date} className="p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-slate-500 font-medium">{day.date}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-emerald-600 text-sm">￥{day.amount.toFixed(2)}</span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${matched ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                {matched ? '✓' : `差${(day.amount - sum).toFixed(0)}`}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <label className="text-[10px] text-slate-400 block mb-0.5">刷卡</label>
+                              <input
+                                type="number"
+                                value={inputs.card}
+                                onChange={(e) => {
+                                  const next = { ...paymentInputs, [day.date]: { ...inputs, card: e.target.value } };
+                                  setPaymentInputs(next);
+                                  scheduleSavePayment(day.date, next[day.date]);
+                                }}
+                                className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                                placeholder="0"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-400 block mb-0.5">现金</label>
+                              <input
+                                type="number"
+                                value={inputs.cash}
+                                onChange={(e) => {
+                                  const next = { ...paymentInputs, [day.date]: { ...inputs, cash: e.target.value } };
+                                  setPaymentInputs(next);
+                                  scheduleSavePayment(day.date, next[day.date]);
+                                }}
+                                className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                                placeholder="0"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-400 block mb-0.5">转账</label>
+                              <input
+                                type="number"
+                                value={inputs.transfer}
+                                onChange={(e) => {
+                                  const next = { ...paymentInputs, [day.date]: { ...inputs, transfer: e.target.value } };
+                                  setPaymentInputs(next);
+                                  scheduleSavePayment(day.date, next[day.date]);
+                                }}
+                                className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                                placeholder="0"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop: Table view for daily sales */}
+                  <div className="hidden sm:block overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead>
                         <tr className="bg-white text-slate-400 text-xs uppercase tracking-wider">
@@ -457,10 +528,10 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
 
       {/* 智能补货预警系统 */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden ring-2 ring-rose-500/5">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-rose-50/30">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2 bg-rose-50/30">
           <div className="flex items-center gap-2 text-rose-600">
             <AlertTriangle className="w-5 h-5 animate-pulse" />
-            <h3 className="font-black">智能补货建议</h3>
+            <h3 className="font-black text-sm sm:text-base">智能补货建议</h3>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 p-1 rounded-lg bg-white border border-slate-200">
@@ -469,7 +540,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                   setLowStockFilter('all');
                   setLowStockPage(1);
                 }}
-                className={`px-2 py-1 rounded text-xs font-bold ${lowStockFilter === 'all' ? 'bg-rose-100 text-rose-600' : 'text-slate-600'}`}
+                className={`px-2 py-1.5 sm:py-1 rounded text-xs font-bold ${lowStockFilter === 'all' ? 'bg-rose-100 text-rose-600' : 'text-slate-600'}`}
               >
                 全部
               </button>
@@ -478,24 +549,68 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                   setLowStockFilter('soldout');
                   setLowStockPage(1);
                 }}
-                className={`px-2 py-1 rounded text-xs font-bold ${lowStockFilter === 'soldout' ? 'bg-rose-100 text-rose-600' : 'text-slate-600'}`}
+                className={`px-2 py-1.5 sm:py-1 rounded text-xs font-bold ${lowStockFilter === 'soldout' ? 'bg-rose-100 text-rose-600' : 'text-slate-600'}`}
               >
-                仅看已售罄
+                已售罄
               </button>
             </div>
             <button
               onClick={exportLowStockExcel}
               disabled={filteredLowStockList.length === 0}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-700 disabled:text-slate-300 disabled:bg-slate-50"
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-700 disabled:text-slate-300 disabled:bg-slate-50 hidden sm:block"
             >
               导出 Excel
             </button>
-            <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full uppercase tracking-tighter">库存预警</span>
+            <span className="hidden sm:inline text-[10px] font-bold bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full uppercase tracking-tighter">库存预警</span>
           </div>
         </div>
         <div className="p-0">
           {filteredLowStockList.length > 0 ? (
-            <div className="overflow-x-auto">
+            <>
+              {/* Mobile: card view */}
+              <div className="sm:hidden divide-y divide-slate-50">
+                {pagedLowStock.map((item: any) => (
+                  <div key={item.id} className="px-4 py-3 flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${item.stock === 0 ? 'bg-rose-500 animate-pulse' : 'bg-amber-500'}`} />
+                    <div className="flex-1 min-w-0">
+                      <span className="font-bold text-slate-800 text-sm truncate block">{item.name}</span>
+                      <span className="text-[11px] text-slate-400">
+                        {item.category || categories.find((c: any) => c.id === item.category_id)?.name || '未分类'}
+                      </span>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className={`font-mono font-bold text-sm ${item.stock === 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                        {item.stock}
+                      </span>
+                      <span className={`block text-[10px] font-medium ${item.stock === 0 ? 'text-rose-500' : 'text-amber-500'}`}>
+                        {item.stock === 0 ? '售罄' : '紧张'}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                <div className="px-4 py-3 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-400">{safeLowStockPage}/{totalLowStockPages}页 · {filteredLowStockList.length}项</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setLowStockPage(prev => Math.max(1, prev - 1))}
+                      disabled={safeLowStockPage <= 1}
+                      className="px-3 py-2 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 disabled:text-slate-300 disabled:bg-slate-50"
+                    >
+                      上一页
+                    </button>
+                    <button
+                      onClick={() => setLowStockPage(prev => Math.min(totalLowStockPages, prev + 1))}
+                      disabled={safeLowStockPage >= totalLowStockPages}
+                      className="px-3 py-2 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 disabled:text-slate-300 disabled:bg-slate-50"
+                    >
+                      下一页
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Desktop: table view */}
+              <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold tracking-widest">
@@ -552,7 +667,8 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                   </button>
                 </div>
               </div>
-            </div>
+              </div>
+            </>
           ) : (
             <div className="p-12 text-center">
               <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">

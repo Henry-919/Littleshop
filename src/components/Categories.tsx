@@ -143,71 +143,126 @@ export function Categories({ store, storeId }: { store: ReturnType<typeof useSto
         {/* 分类列表 */}
         <div className="p-0">
           {categories.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                    <th className="px-6 py-4 font-semibold">分类名称</th>
-                    <th className="px-6 py-4 font-semibold">包含商品数量</th>
-                    <th className="px-6 py-4 font-semibold">低库存阈值</th>
-                    <th className="px-6 py-4 font-semibold text-right">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {categories.map(category => {
-                    const count = products.filter(p => p.category_id === category.id).length;
-                    return (
-                      <tr key={category.id} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="px-6 py-4">
-                          <span className="font-bold text-slate-700">{category.name}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`text-sm ${count > 0 ? 'text-slate-500' : 'text-slate-300 italic'}`}>
-                            {count} 个商品
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="number"
-                              min={0}
-                              value={getThresholdValue(category.id, category.low_stock_threshold)}
-                              onChange={(e) =>
-                                setThresholdDrafts(prev => ({
-                                  ...prev,
-                                  [category.id]: e.target.value
-                                }))
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') saveThreshold(category.id);
-                              }}
-                              className="w-24 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                              placeholder="默认"
-                            />
-                            <button
-                              onClick={() => saveThreshold(category.id)}
-                              className="p-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-all"
-                              title="保存阈值"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
+            <>
+              {/* Mobile card view */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {categories.map(category => {
+                  const count = products.filter(p => p.category_id === category.id).length;
+                  return (
+                    <div key={category.id} className="p-4 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-700">{category.name}</span>
+                        <button
+                          onClick={() => handleDelete(category.id, category.name)}
+                          className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                          title="删除分类"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs ${count > 0 ? 'text-slate-500' : 'text-slate-300 italic'}`}>
+                          {count} 个商品
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400">阈值</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={getThresholdValue(category.id, category.low_stock_threshold)}
+                            onChange={(e) =>
+                              setThresholdDrafts(prev => ({
+                                ...prev,
+                                [category.id]: e.target.value
+                              }))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveThreshold(category.id);
+                            }}
+                            className="w-16 px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
+                            placeholder="默认"
+                          />
                           <button
-                            onClick={() => handleDelete(category.id, category.name)}
-                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                            title="删除分类"
+                            onClick={() => saveThreshold(category.id)}
+                            className="p-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-all"
+                            title="保存阈值"
                           >
-                            <Trash2 className="w-5 h-5" />
+                            <Check className="w-3.5 h-3.5" />
                           </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop table view */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                      <th className="px-6 py-4 font-semibold">分类名称</th>
+                      <th className="px-6 py-4 font-semibold">包含商品数量</th>
+                      <th className="px-6 py-4 font-semibold">低库存阈值</th>
+                      <th className="px-6 py-4 font-semibold text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {categories.map(category => {
+                      const count = products.filter(p => p.category_id === category.id).length;
+                      return (
+                        <tr key={category.id} className="hover:bg-slate-50/50 transition-colors group">
+                          <td className="px-6 py-4">
+                            <span className="font-bold text-slate-700">{category.name}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`text-sm ${count > 0 ? 'text-slate-500' : 'text-slate-300 italic'}`}>
+                              {count} 个商品
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min={0}
+                                value={getThresholdValue(category.id, category.low_stock_threshold)}
+                                onChange={(e) =>
+                                  setThresholdDrafts(prev => ({
+                                    ...prev,
+                                    [category.id]: e.target.value
+                                  }))
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveThreshold(category.id);
+                                }}
+                                className="w-24 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                                placeholder="默认"
+                              />
+                              <button
+                                onClick={() => saveThreshold(category.id)}
+                                className="p-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-all"
+                                title="保存阈值"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button
+                              onClick={() => handleDelete(category.id, category.name)}
+                              className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                              title="删除分类"
+                            >
+                              <Trash2 className="w-5 h-5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           ) : (
             <div className="p-20 text-center">
               <div className="w-16 h-16 bg-slate-50 text-slate-200 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -229,10 +284,10 @@ export function Categories({ store, storeId }: { store: ReturnType<typeof useSto
       </div>
 
       {showDeleted && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-100">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900">删除记录 - 分类</h3>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl max-h-[85vh] sm:max-h-[80vh] overflow-hidden border border-slate-100 flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">删除记录 - 分类</h3>
               <button
                 onClick={() => setShowDeleted(false)}
                 className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
@@ -240,32 +295,46 @@ export function Categories({ store, storeId }: { store: ReturnType<typeof useSto
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
               {deletedLoading ? (
                 <div className="text-slate-400 text-sm">加载中...</div>
               ) : deletedCategories.length === 0 ? (
                 <div className="text-slate-400 text-sm">暂无删除记录</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                        <th className="px-6 py-3">分类名称</th>
-                        <th className="px-6 py-3">删除时间</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {deletedCategories.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
-                          <td className="px-6 py-3 text-slate-500">
-                            {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
-                          </td>
+                <>
+                  {/* Mobile cards */}
+                  <div className="sm:hidden space-y-2">
+                    {deletedCategories.map((item) => (
+                      <div key={item.id} className="bg-slate-50 rounded-xl p-3 flex items-center justify-between">
+                        <span className="font-medium text-slate-700 text-sm">{item.name}</span>
+                        <span className="text-[11px] text-slate-400">
+                          {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Desktop table */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                          <th className="px-6 py-3">分类名称</th>
+                          <th className="px-6 py-3">删除时间</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {deletedCategories.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
+                            <td className="px-6 py-3 text-slate-500">
+                              {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div>
           </div>

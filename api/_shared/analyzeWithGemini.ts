@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
-const preferredModels = ['gemini-2.0-flash-lite', 'gemini-flash-latest'];
+const DEFAULT_MODELS = ['gemini-2.0-flash-lite', 'gemini-flash-latest'];
 const MODEL_TIMEOUT_MS = 30000;
 
 type AnalyzeInput = {
@@ -9,6 +9,7 @@ type AnalyzeInput = {
   prompt: string;
   schema: any;
   temperature?: number;
+  models?: string[];
 };
 
 type AnalyzeResult = {
@@ -68,7 +69,8 @@ export async function analyzeWithGemini({
   mimeType,
   prompt,
   schema,
-  temperature = 0.05
+  temperature = 0.05,
+  models
 }: AnalyzeInput): Promise<AnalyzeResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -80,8 +82,8 @@ export async function analyzeWithGemini({
     return { status: 400, body: { error: '图片数据格式无效，请重新上传图片' } };
   }
 
-  if (normalizedBase64.length > 2_000_000) {
-    return { status: 413, body: { error: '图片过大，请压缩后重试（建议单张不超过 2MB）' } };
+  if (normalizedBase64.length > 4_000_000) {
+    return { status: 413, body: { error: '图片过大，请压缩后重试（建议单张不超过 3MB）' } };
   }
 
   const normalizedMimeType = normalizeMimeType(mimeType);
@@ -89,6 +91,8 @@ export async function analyzeWithGemini({
   const ai = new GoogleGenAI({ apiKey });
   let lastError: any = null;
   let response: any = null;
+
+  const preferredModels = models && models.length > 0 ? models : DEFAULT_MODELS;
 
   const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number) => {
     let timer: any;

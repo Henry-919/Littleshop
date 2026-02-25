@@ -48,8 +48,8 @@ const normalizeInvoiceDate = (input: any) => {
   const raw = toHalfWidthDigits(String(input ?? '').trim());
   if (!raw) return undefined;
 
-  // YYYY-MM-DD or YYYY/MM/DD
-  let match = raw.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  // YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+  let match = raw.match(/(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
   if (match) {
     const y = match[1];
     const m = match[2].padStart(2, '0');
@@ -57,8 +57,8 @@ const normalizeInvoiceDate = (input: any) => {
     return `${y}-${m}-${d}`;
   }
 
-  // DD-MM-YYYY or DD/MM/YYYY (common on Arabic/Omani invoices)
-  match = raw.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  // DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY (common on Arabic/Omani invoices)
+  match = raw.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
   if (match) {
     const part1 = parseInt(match[1], 10);
     const part2 = parseInt(match[2], 10);
@@ -79,8 +79,8 @@ const normalizeInvoiceDate = (input: any) => {
     return `${y}-${m}-${d}`;
   }
 
-  // DD-MM-YY (2-digit year)
-  match = raw.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2})(?!\d)/);
+  // DD-MM-YY or DD/MM/YY or DD.MM.YY (2-digit year)
+  match = raw.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2})(?!\d)/);
   if (match) {
     const part1 = parseInt(match[1], 10);
     const part2 = parseInt(match[2], 10);
@@ -175,24 +175,50 @@ const normalizeItems = (items: any[], candidates: string[]) => {
 
 const buildAnalyzePrompt = (candidateProducts: string[]) => {
   const candidateBlock = candidateProducts.length
-    ? `\n候选商品（若相似请优先使用原文一致写法）：\n${candidateProducts.map((name, index) => `${index + 1}. ${name}`).join('\n')}`
+    ? `\n\n已知商品列表（识别结果请优先匹配，但不要强行匹配不存在的商品）：\n${candidateProducts.map((name, index) => `${index + 1}. ${name}`).join('\n')}`
     : '';
 
   return (
-    '任务: 从手写发票(CASH INVOICE)图片中提取结构化数据。\n' +
-    '发票模板: WANG YUWU INTERNATIONAL SPC（阿曼苏丹国）\n' +
-    '表头列: ITEM | DESCRIPTION | QTY | RATE | AMOUNT(R.O. | Bz.)\n' +
-    '\n规则：\n' +
-    '1) DESCRIPTION 列为 productName — 通常是产品型号编码（如 F802A-1-5、K-05-2、41901-2、653D-2、Ly-159-2）。\n' +
-    '   - 注意区分相似字符：0与O、1与l、5与S、8与B、2与Z。\n' +
-    '   - 保留原始大小写和连字符。\n' +
-    '2) QTY → quantity（数字），RATE → unitPrice（单价数字，R.O.列），AMOUNT R.O.列 → totalAmount（数字）。\n' +
-    '   - 若 Bz. 列有值，则 AMOUNT = R.O.部分 + Bz.部分/1000（如 36 R.O. + 500 Bz. = 36.5）。\n' +
-    '3) 日期: 读取表格上方 Date 字段（格式 DD-MM-YYYY），输出 YYYY-MM-DD。忽略印章/签名区域的日期。\n' +
-    '4) 若 QTY × RATE ≠ AMOUNT，以 AMOUNT 为准。\n' +
-    '5) ITEM 列的编号（0, 1, 2...）不是商品名，忽略它。\n' +
-    '6) 忽略空行、印章(HAISHENG等)、签名、页脚条款(Terms of warranty)、被覆盖的区域、Total Amount 行。\n' +
-    '7) 仅输出 JSON，不要输出任何解释文字。' +
+    '你是一个专业的手写发票 OCR 系统。请仔细分析图片中的手写发票，提取所有商品行数据。\n' +
+    '\n' +
+    '## 发票模板\n' +
+    '这是 WANG YUWU INTERNATIONAL SPC（阿曼苏丹国）的手写现金发票(CASH INVOICE)。\n' +
+    '表格列从左到右：ITEM编号 | DESCRIPTION（商品描述）| QTY（数量）| RATE/السعر（单价）| AMOUNT/المبلغ（金额，分R.O.和Bz.两小列）\n' +
+    '\n' +
+    '## 关键提取规则\n' +
+    '\n' +
+    '### 商品名称 (productName)\n' +
+    '- 来自 DESCRIPTION 列的手写文字\n' +
+    '- 通常是产品型号编码，例如：M-2504、F802A-1-5、K-05-2、41901-2、653D-2、Ly-159-2\n' +
+    '- ⚠️ 描述可能跨越多行！同一 ITEM 编号下的所有行都属于同一个商品。例如第一行写 "M-2504 (Silver)"、第二行写 "Small-Ward"，它们合在一起是一个商品名\n' +
+    '- 多行描述用空格连接为一个完整名称，如 "M-2504 (Silver) Small-Ward"\n' +
+    '- 手写字符易混淆的对照：0↔O、1↔l↔I、5↔S、8↔B、2↔Z、6↔G\n' +
+    '- 保留原始大小写、连字符、括号\n' +
+    '\n' +
+    '### 数量、价格、金额\n' +
+    '- QTY → quantity（整数）\n' +
+    '- RATE → unitPrice（单价，R.O.列的数字）\n' +
+    '- AMOUNT → totalAmount：\n' +
+    '  - 若只有 R.O.列有值 → 直接取该数字\n' +
+    '  - 若 Bz.列也有值 → totalAmount = R.O.部分 + Bz.部分/1000（例：36 R.O. + 500 Bz. = 36.5）\n' +
+    '- 若 QTY × RATE ≠ AMOUNT，以手写的 AMOUNT 为准\n' +
+    '\n' +
+    '### 日期 (saleDate)\n' +
+    '- 读取表格上方 "Date:" 字段的手写日期\n' +
+    '- 格式可能是 DD.MM.YY、DD-MM-YYYY、DD/MM/YYYY 等\n' +
+    '- 输出格式：DD-MM-YYYY（若是2位年份，补全为4位：26→2026）\n' +
+    '- ⚠️ 忽略图中任何银行回单、POS单据上的日期\n' +
+    '\n' +
+    '### 必须忽略的内容\n' +
+    '- 图片中叠放的小型银行回单、POS刷卡单据（通常在角落，有"SALE"、"TOTAL"、银行logo等字样）\n' +
+    '- ITEM 列的序号（0, 1, 2...）不是商品名\n' +
+    '- 空行、印章(HAISHENG等)、签名、条款(Terms of warranty)、Total Amount 汇总行\n' +
+    '- 被其他纸张覆盖遮挡的区域\n' +
+    '\n' +
+    '### 输出要求\n' +
+    '- 仅输出 JSON，不要输出解释文字\n' +
+    '- 每个有效商品行必须输出，不允许遗漏\n' +
+    '- 仔细检查每一行：看到 QTY 列有数字就说明该行是有效商品行' +
     candidateBlock
   );
 };
@@ -211,7 +237,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? candidateProducts
           .map((item: any) => String(item || '').trim())
           .filter(Boolean)
-          .slice(0, 80)
+          .slice(0, 120)
       : [];
 
     const result = await analyzeWithGemini({
@@ -219,7 +245,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       mimeType,
       prompt: buildAnalyzePrompt(candidates),
       schema,
-      temperature: 0.05
+      temperature: 0.05,
+      models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite']
     });
     if (result.status === 504) {
       return res.status(200).json({ items: [], error: 'ai_timeout' });

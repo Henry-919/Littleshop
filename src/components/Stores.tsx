@@ -148,75 +148,135 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
 
         <div className="p-0">
           {stores.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                    <th className="px-6 py-4 font-semibold">门店名称</th>
-                    <th className="px-6 py-4 font-semibold">门店 ID</th>
-                    <th className="px-6 py-4 font-semibold text-right">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {stores.map((storeItem) => (
-                    <tr key={storeItem.id} className="hover:bg-slate-50/50 transition-colors group">
-                      <td className="px-6 py-4">
-                        {editingId === storeItem.id ? (
+            <>
+              {/* Mobile card view */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {stores.map((storeItem) => (
+                  <div key={storeItem.id} className="p-4">
+                    {editingId === storeItem.id ? (
+                      <div className="space-y-2">
+                        <input
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEditing();
+                            if (e.key === 'Escape') cancelEditing();
+                          }}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={saveEditing}
+                            className="flex-1 py-2 bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1"
+                          >
+                            <Check className="w-3.5 h-3.5" /> 保存
+                          </button>
+                          <button
+                            onClick={cancelEditing}
+                            className="flex-1 py-2 bg-white text-slate-600 border border-slate-200 rounded-lg text-xs font-bold flex items-center justify-center gap-1"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" /> 取消
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <input
-                              value={editName}
-                              onChange={(e) => setEditName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') saveEditing();
-                                if (e.key === 'Escape') cancelEditing();
-                              }}
-                              className="w-full px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                            />
-                            <button
-                              onClick={saveEditing}
-                              className="p-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all"
-                              title="保存"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={cancelEditing}
-                              className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
-                              title="取消"
-                            >
-                              <RotateCcw className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-700">{storeItem.name}</span>
+                            <span className="font-bold text-slate-700 text-sm">{storeItem.name}</span>
                             <button
                               onClick={() => startEditing(storeItem)}
-                              className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all"
-                              title="编辑门店名称"
+                              className="p-1.5 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-all"
                             >
-                              <Edit2 className="w-4 h-4" />
+                              <Edit2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="font-mono text-xs text-slate-400">{storeItem.id}</span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
+                          <span className="font-mono text-[10px] text-slate-300 block mt-0.5 truncate">{storeItem.id}</span>
+                        </div>
                         <button
                           onClick={() => handleDeleteStore(storeItem)}
-                          className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                          className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all shrink-0"
                           title="删除门店"
                         >
-                          <Trash2 className="w-5 h-5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
-                      </td>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table view */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                      <th className="px-6 py-4 font-semibold">门店名称</th>
+                      <th className="px-6 py-4 font-semibold">门店 ID</th>
+                      <th className="px-6 py-4 font-semibold text-right">操作</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {stores.map((storeItem) => (
+                      <tr key={storeItem.id} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="px-6 py-4">
+                          {editingId === storeItem.id ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') saveEditing();
+                                  if (e.key === 'Escape') cancelEditing();
+                                }}
+                                className="w-full px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                              />
+                              <button
+                                onClick={saveEditing}
+                                className="p-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all"
+                                title="保存"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={cancelEditing}
+                                className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
+                                title="取消"
+                              >
+                                <RotateCcw className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-700">{storeItem.name}</span>
+                              <button
+                                onClick={() => startEditing(storeItem)}
+                                className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all"
+                                title="编辑门店名称"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="font-mono text-xs text-slate-400">{storeItem.id}</span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            onClick={() => handleDeleteStore(storeItem)}
+                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                            title="删除门店"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           ) : (
             <div className="p-20 text-center">
               <div className="w-16 h-16 bg-slate-50 text-slate-200 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -230,10 +290,10 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
       </div>
 
       {showDeleted && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden border border-slate-100">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900">删除记录 - 门店</h3>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl max-h-[85vh] sm:max-h-[80vh] overflow-hidden border border-slate-100 flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">删除记录 - 门店</h3>
               <button
                 onClick={() => setShowDeleted(false)}
                 className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
@@ -241,32 +301,46 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
               {deletedLoading ? (
                 <div className="text-slate-400 text-sm">加载中...</div>
               ) : deletedStores.length === 0 ? (
                 <div className="text-slate-400 text-sm">暂无删除记录</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                        <th className="px-6 py-3">门店名称</th>
-                        <th className="px-6 py-3">删除时间</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {deletedStores.map((item: any) => (
-                        <tr key={item.id}>
-                          <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
-                          <td className="px-6 py-3 text-slate-500">
-                            {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
-                          </td>
+                <>
+                  {/* Mobile cards */}
+                  <div className="sm:hidden space-y-2">
+                    {deletedStores.map((item: any) => (
+                      <div key={item.id} className="bg-slate-50 rounded-xl p-3 flex items-center justify-between">
+                        <span className="font-medium text-slate-700 text-sm">{item.name}</span>
+                        <span className="text-[11px] text-slate-400">
+                          {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Desktop table */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                          <th className="px-6 py-3">门店名称</th>
+                          <th className="px-6 py-3">删除时间</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {deletedStores.map((item: any) => (
+                          <tr key={item.id}>
+                            <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
+                            <td className="px-6 py-3 text-slate-500">
+                              {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </div>
           </div>

@@ -115,8 +115,8 @@ const compressImageDataUrl = (
     img.src = dataUrl;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const MAX_WIDTH = options?.maxWidth || 1200;
-      const JPEG_QUALITY = typeof options?.jpegQuality === 'number' ? options.jpegQuality : 0.72;
+      const MAX_WIDTH = options?.maxWidth || 1600;
+      const JPEG_QUALITY = typeof options?.jpegQuality === 'number' ? options.jpegQuality : 0.85;
       let width = img.width;
       let height = img.height;
 
@@ -405,10 +405,8 @@ export function ReceiptScanner({ store }: { store: any }) {
       for (const imageDataUrl of images) {
         try {
           const retryCandidates: Array<{ label: string; makeDataUrl: () => Promise<string> }> = [
-            { label: 'jpeg-standard', makeDataUrl: () => compressImageDataUrl(imageDataUrl, 'image/jpeg') },
-            { label: 'png-fallback', makeDataUrl: () => compressImageDataUrl(imageDataUrl, 'image/png') },
-            { label: 'raw-original', makeDataUrl: async () => imageDataUrl },
-            { label: 'jpeg-lowres', makeDataUrl: () => compressImageDataUrl(imageDataUrl, 'image/jpeg', { maxWidth: 960, jpegQuality: 0.65 }) }
+            { label: 'jpeg-hq', makeDataUrl: () => compressImageDataUrl(imageDataUrl, 'image/jpeg', { maxWidth: 1600, jpegQuality: 0.85 }) },
+            { label: 'png-fallback', makeDataUrl: () => compressImageDataUrl(imageDataUrl, 'image/png', { maxWidth: 1600 }) },
           ];
 
           let payload: any = null;
