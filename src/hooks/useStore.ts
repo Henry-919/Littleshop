@@ -234,10 +234,12 @@ export function useStore(storeId?: string) {
       if (!name) continue;
       onProgress(`处理中: ${name}`);
 
-      const rawPrice = parseFloat(row['销售价'] || '0');
       const rawStock = parseInt(row['库存数量'] || '0', 10);
       const rawCost = parseFloat(row['成本价'] || '0');
-      const price = Number.isFinite(rawPrice) ? rawPrice : 0;
+      const salesPriceText = String(row['销售价'] ?? '').trim();
+      const salesPriceNumber = parseFloat(salesPriceText);
+      const hasSalesPrice = salesPriceText !== '' && Number.isFinite(salesPriceNumber);
+      const price = hasSalesPrice ? salesPriceNumber : null;
       const stock = Number.isFinite(rawStock) ? rawStock : 0;
       const cost_price = Number.isFinite(rawCost) ? rawCost : 0;
       const categoryName = String(row['类目'] || '').trim() || '未分类';
@@ -282,12 +284,17 @@ export function useStore(storeId?: string) {
       // 修改逻辑：如果存在则覆盖库存数量
       const existing = currentProducts.find(p => normalize(p.name) === normalize(name));
       if (existing) {
-        const updated = await updateProduct(existing.id, { stock, price, cost_price, category_id });
+        const updates: Partial<Product> = { stock, cost_price, category_id };
+        if (price !== null) {
+          updates.price = price;
+        }
+        const updated = await updateProduct(existing.id, updates);
         if (updated) {
           currentProducts = currentProducts.map(p => p.id === existing.id ? { ...p } : p);
         }
       } else {
-        const { data, error } = await addProduct({ name, price, stock, cost_price, category_id });
+        const finalPrice = price ?? cost_price;
+        const { data, error } = await addProduct({ name, price: finalPrice, stock, cost_price, category_id });
 
         if (!error && data) {
           currentProducts.push(data);
@@ -303,7 +310,11 @@ export function useStore(storeId?: string) {
 
           const duplicated = duplicatedList && duplicatedList[0];
           if (duplicated?.id) {
-            await updateProduct(duplicated.id, { stock, price, cost_price, category_id });
+            const updates: Partial<Product> = { stock, cost_price, category_id };
+            if (price !== null) {
+              updates.price = price;
+            }
+            await updateProduct(duplicated.id, updates);
             if (!currentProducts.some(p => p.id === duplicated.id)) {
               currentProducts.push(duplicated);
             }

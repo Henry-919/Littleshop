@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { ExcelImporter } from './ExcelImporter';
 import { ReceiptScanner } from './ReceiptScanner';
+import { StockBatchImporter } from './StockBatchImporter';
 
 export function Inventory({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   // 1. 防御性数据获取
@@ -148,16 +149,17 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   };
 
   const handleAddProduct = async () => {
-    if (!addProduct) return;
+    if (!addProduct || !updateProduct) return;
     const name = addFormData.name.trim();
     if (!name) return;
+    const normalize = (value: string) => value.trim().toLowerCase();
     const costPrice = Number(addFormData.cost_price) || 0;
+    const hasCostPrice = addFormData.cost_price.toString().trim() !== '';
     const stock = Number(addFormData.stock) || 0;
     let category_id = addFormData.category_id || undefined;
 
     // 未手动选择分类时，自动归入“未分类”
     if (!category_id && storeId) {
-      const normalize = (value: string) => value.trim().toLowerCase();
       const defaultCategoryName = '未分类';
 
       const existingCategory = categories.find(c => normalize(c.name) === normalize(defaultCategoryName));
@@ -186,6 +188,28 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           }
         }
       }
+    }
+
+    const existingProduct = products.find((p: any) => normalize(p.name || '') === normalize(name));
+    if (existingProduct) {
+      const updates: any = {
+        stock: (Number(existingProduct.stock) || 0) + stock
+      };
+
+      if (hasCostPrice) {
+        updates.cost_price = costPrice;
+        updates.price = costPrice;
+      }
+      if (category_id) {
+        updates.category_id = category_id;
+      }
+
+      const ok = await updateProduct(existingProduct.id, updates);
+      if (ok) {
+        setAddFormData({ name: '', cost_price: '', stock: '', category_id: '' });
+        setIsAddOpen(false);
+      }
+      return;
     }
 
     const { error } = await addProduct({
@@ -283,6 +307,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
             </button>
 
             <ExcelImporter store={store} />
+            <StockBatchImporter store={store} />
           </div>
         </div>
 

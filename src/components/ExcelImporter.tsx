@@ -56,7 +56,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
 
       } catch (err) {
         console.error('Excel Import Error:', err);
-        alert('解析 Excel 失败，请确保格式正确（列名需包含：商品名称、类目、销售价、成本价、库存数量）');
+        alert('解析 Excel 失败，请确保格式正确（列名需包含：商品名称、类目、成本价、库存数量；销售价可为空）');
       } finally {
         setImporting(false);
         setProgress('');
