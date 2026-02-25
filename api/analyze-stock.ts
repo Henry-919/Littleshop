@@ -1,5 +1,5 @@
 import { Type } from '@google/genai';
-import { analyzeWithGemini, setCors } from './_shared/analyzeWithGemini';
+import { analyzeWithGemini, setCors } from './_shared/analyzeWithGemini.js';
 
 export const config = {
   maxDuration: 60
