@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
-const preferredModels = ['gemini-flash-latest'];
+const preferredModels = ['gemini-2.0-flash-lite', 'gemini-flash-latest'];
 const MODEL_TIMEOUT_MS = 30000;
 
 type AnalyzeInput = {

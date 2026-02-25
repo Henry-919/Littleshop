@@ -236,6 +236,68 @@ export function useStore(storeId?: string) {
     return !error;
   };
 
+  const updateSale = async (
+    saleId: string,
+    updates: { productId?: string; quantity?: number; totalAmount?: number; salesperson?: string; date?: string }
+  ) => {
+    const oldSale = sales.find(s => s.id === saleId);
+    if (!oldSale) return false;
+
+    const newProductId = updates.productId ?? oldSale.productId;
+    const newQuantity = updates.quantity ?? oldSale.quantity;
+    const newTotalAmount = updates.totalAmount ?? oldSale.totalAmount;
+    const newSalesperson = updates.salesperson ?? oldSale.salesperson;
+    const newDate = updates.date !== undefined ? normalizeSaleDate(updates.date) : oldSale.date;
+
+    // 1. 库存调整：还原旧商品库存，扣减新商品库存
+    const oldProduct = products.find(p => p.id === oldSale.productId);
+    const isSameProduct = newProductId === oldSale.productId;
+
+    if (isSameProduct && oldProduct) {
+      // 同商品：只调整差量
+      const qtyDiff = newQuantity - oldSale.quantity;
+      if (qtyDiff !== 0) {
+        const newStock = oldProduct.stock - qtyDiff;
+        await supabase.from('products').update({ stock: newStock }).eq('id', oldProduct.id);
+        setProducts(prev => prev.map(p => p.id === oldProduct.id ? { ...p, stock: newStock } : p));
+      }
+    } else {
+      // 换商品：还原旧、扣减新
+      if (oldProduct) {
+        const restoredStock = oldProduct.stock + oldSale.quantity;
+        await supabase.from('products').update({ stock: restoredStock }).eq('id', oldProduct.id);
+        setProducts(prev => prev.map(p => p.id === oldProduct.id ? { ...p, stock: restoredStock } : p));
+      }
+      const newProduct = products.find(p => p.id === newProductId);
+      if (newProduct) {
+        const deductedStock = newProduct.stock - newQuantity;
+        await supabase.from('products').update({ stock: deductedStock }).eq('id', newProduct.id);
+        setProducts(prev => prev.map(p => p.id === newProduct.id ? { ...p, stock: deductedStock } : p));
+      }
+    }
+
+    // 2. 更新销售记录
+    const dbUpdates: any = {
+      product_id: newProductId,
+      quantity: newQuantity,
+      total_amount: newTotalAmount,
+      salesperson: newSalesperson,
+      date: newDate
+    };
+    const { error } = await supabase.from('sales').update(dbUpdates).eq('id', saleId);
+    if (error) return false;
+
+    setSales(prev => prev.map(s => s.id === saleId ? {
+      ...s,
+      productId: newProductId,
+      quantity: newQuantity,
+      totalAmount: newTotalAmount,
+      salesperson: newSalesperson,
+      date: newDate
+    } : s));
+    return true;
+  };
+
   const processExcelImport = async (
     rows: any[],
     onProgress: (msg: string) => void,
@@ -364,6 +426,6 @@ export function useStore(storeId?: string) {
   return { 
     products, sales, categories, loading, fetchData,
     addProduct, updateProduct, deleteProduct, addSale, processExcelImport,
-    addCategory, updateCategory, deleteCategory, deleteSale
+    addCategory, updateCategory, deleteCategory, deleteSale, updateSale
   };
 }

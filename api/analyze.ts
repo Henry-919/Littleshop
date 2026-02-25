@@ -48,6 +48,7 @@ const normalizeInvoiceDate = (input: any) => {
   const raw = toHalfWidthDigits(String(input ?? '').trim());
   if (!raw) return undefined;
 
+  // YYYY-MM-DD or YYYY/MM/DD
   let match = raw.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
   if (match) {
     const y = match[1];
@@ -56,11 +57,46 @@ const normalizeInvoiceDate = (input: any) => {
     return `${y}-${m}-${d}`;
   }
 
+  // DD-MM-YYYY or DD/MM/YYYY (common on Arabic/Omani invoices)
   match = raw.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
   if (match) {
-    const d = match[1].padStart(2, '0');
-    const m = match[2].padStart(2, '0');
+    const part1 = parseInt(match[1], 10);
+    const part2 = parseInt(match[2], 10);
     const y = match[3];
+    // Heuristic: if part1 > 12, it must be the day
+    let d: string, m: string;
+    if (part1 > 12) {
+      d = String(part1).padStart(2, '0');
+      m = String(part2).padStart(2, '0');
+    } else if (part2 > 12) {
+      m = String(part1).padStart(2, '0');
+      d = String(part2).padStart(2, '0');
+    } else {
+      // Ambiguous — assume DD-MM-YYYY (European/Arabic convention)
+      d = String(part1).padStart(2, '0');
+      m = String(part2).padStart(2, '0');
+    }
+    return `${y}-${m}-${d}`;
+  }
+
+  // DD-MM-YY (2-digit year)
+  match = raw.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2})(?!\d)/);
+  if (match) {
+    const part1 = parseInt(match[1], 10);
+    const part2 = parseInt(match[2], 10);
+    const shortYear = parseInt(match[3], 10);
+    const y = String(shortYear >= 0 && shortYear <= 50 ? 2000 + shortYear : 1900 + shortYear);
+    let d: string, m: string;
+    if (part1 > 12) {
+      d = String(part1).padStart(2, '0');
+      m = String(part2).padStart(2, '0');
+    } else if (part2 > 12) {
+      m = String(part1).padStart(2, '0');
+      d = String(part2).padStart(2, '0');
+    } else {
+      d = String(part1).padStart(2, '0');
+      m = String(part2).padStart(2, '0');
+    }
     return `${y}-${m}-${d}`;
   }
 
@@ -143,15 +179,20 @@ const buildAnalyzePrompt = (candidateProducts: string[]) => {
     : '';
 
   return (
-    '任务: 从手写发票提取结构化数据。\n' +
-    '抬头关键词: WANG YUWU INTERNATIONAL SPC。\n' +
-    '规则：\n' +
-    '1) DESCRIPTION 为 productName（优先保留型号字符，如 41901-2、653D-2）。\n' +
-    '2) 读取 QTY, RATE, AMOUNT，统一为数字。\n' +
-    '3) 只读取页面顶部 Date 字段，忽略印章日期；输出 YYYY-MM-DD。\n' +
-    '4) 若 数量*单价 与 AMOUNT 不一致，以 AMOUNT 为准。\n' +
-    '5) 忽略空行、印章、签名、页脚条款、小票覆盖区域。\n' +
-    '6) 仅输出 JSON。' +
+    '任务: 从手写发票(CASH INVOICE)图片中提取结构化数据。\n' +
+    '发票模板: WANG YUWU INTERNATIONAL SPC（阿曼苏丹国）\n' +
+    '表头列: ITEM | DESCRIPTION | QTY | RATE | AMOUNT(R.O. | Bz.)\n' +
+    '\n规则：\n' +
+    '1) DESCRIPTION 列为 productName — 通常是产品型号编码（如 F802A-1-5、K-05-2、41901-2、653D-2、Ly-159-2）。\n' +
+    '   - 注意区分相似字符：0与O、1与l、5与S、8与B、2与Z。\n' +
+    '   - 保留原始大小写和连字符。\n' +
+    '2) QTY → quantity（数字），RATE → unitPrice（单价数字，R.O.列），AMOUNT R.O.列 → totalAmount（数字）。\n' +
+    '   - 若 Bz. 列有值，则 AMOUNT = R.O.部分 + Bz.部分/1000（如 36 R.O. + 500 Bz. = 36.5）。\n' +
+    '3) 日期: 读取表格上方 Date 字段（格式 DD-MM-YYYY），输出 YYYY-MM-DD。忽略印章/签名区域的日期。\n' +
+    '4) 若 QTY × RATE ≠ AMOUNT，以 AMOUNT 为准。\n' +
+    '5) ITEM 列的编号（0, 1, 2...）不是商品名，忽略它。\n' +
+    '6) 忽略空行、印章(HAISHENG等)、签名、页脚条款(Terms of warranty)、被覆盖的区域、Total Amount 行。\n' +
+    '7) 仅输出 JSON，不要输出任何解释文字。' +
     candidateBlock
   );
 };
@@ -170,7 +211,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ? candidateProducts
           .map((item: any) => String(item || '').trim())
           .filter(Boolean)
-          .slice(0, 40)
+          .slice(0, 80)
       : [];
 
     const result = await analyzeWithGemini({
