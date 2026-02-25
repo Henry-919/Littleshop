@@ -1,6 +1,10 @@
 import { Type } from '@google/genai';
 import { analyzeWithGemini, setCors } from './_shared/analyzeWithGemini';
 
+export const config = {
+  maxDuration: 60
+};
+
 const schema = {
   type: Type.OBJECT,
   properties: {

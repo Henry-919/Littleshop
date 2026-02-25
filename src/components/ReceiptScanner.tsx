@@ -417,9 +417,12 @@ export function ReceiptScanner({ store }: { store: any }) {
         } catch (singleErr: any) {
           failedCount += 1;
           const rawMessage = String(singleErr?.message || singleErr || '识别失败');
-          const message = rawMessage.toLowerCase().includes('did not match the expected pattern')
+          const lower = rawMessage.toLowerCase();
+          const message = lower.includes('did not match the expected pattern')
             ? '图片格式解析失败，请重拍或改用 JPG/PNG 图片'
-            : rawMessage;
+            : lower.includes('function_invocation_failed')
+              ? '云端识别函数执行失败（可能超时或运行时异常），请稍后重试'
+              : rawMessage;
           failureMessages.push(message);
         }
       }
@@ -438,9 +441,12 @@ export function ReceiptScanner({ store }: { store: any }) {
     } catch (err: any) {
       console.error(err);
       const rawMessage = String(err?.message || err || '识别失败');
-      const message = rawMessage.toLowerCase().includes('did not match the expected pattern')
+      const lower = rawMessage.toLowerCase();
+      const message = lower.includes('did not match the expected pattern')
         ? '图片格式解析失败，请重拍或改用 JPG/PNG 图片'
-        : rawMessage;
+        : lower.includes('function_invocation_failed')
+          ? '云端识别函数执行失败（可能超时或运行时异常），请稍后重试'
+          : rawMessage;
       setError(message);
     } finally {
       setLoading(false);

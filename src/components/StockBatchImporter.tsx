@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { FileSpreadsheet, Loader2, X, AlertTriangle, CheckCircle2, ImageUp, History } from 'lucide-react';
+import heic2any from 'heic2any';
 
 interface StockBatchImporterProps {
   store?: any;
@@ -170,7 +171,7 @@ const parseRows = (rawRows: any[]): ParsedRow[] => {
   return parsed;
 };
 
-const fileToDataUrl = (file: File) => {
+const fileToDataUrl = (file: File | Blob) => {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (evt) => resolve(String(evt.target?.result || ''));
@@ -179,13 +180,41 @@ const fileToDataUrl = (file: File) => {
   });
 };
 
-const compressImageDataUrl = (dataUrl: string) => {
+const isHeicLike = (file: File) => {
+  const type = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  return type.includes('heic') || type.includes('heif') || /\.(heic|heif)$/.test(name);
+};
+
+const toJpegDataUrlIfNeeded = async (file: File) => {
+  if (!isHeicLike(file)) return fileToDataUrl(file);
+
+  try {
+    const converted = await heic2any({
+      blob: file,
+      toType: 'image/jpeg',
+      quality: 0.9
+    });
+    const jpegBlob = Array.isArray(converted) ? converted[0] : converted;
+    if (!(jpegBlob instanceof Blob)) throw new Error('HEIC 转换失败');
+    return fileToDataUrl(jpegBlob);
+  } catch {
+    throw new Error('HEIC 图片转换失败，请在 iPhone 相机中选择“兼容性最佳”后重试');
+  }
+};
+
+const compressImageDataUrl = (
+  dataUrl: string,
+  outputType: 'image/jpeg' | 'image/png' = 'image/jpeg',
+  options?: { maxWidth?: number; jpegQuality?: number }
+) => {
   return new Promise<string>((resolve, reject) => {
     const img = new Image();
     img.src = dataUrl;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const maxWidth = 1400;
+      const maxWidth = options?.maxWidth || 1400;
+      const jpegQuality = typeof options?.jpegQuality === 'number' ? options.jpegQuality : 0.8;
       let { width, height } = img;
 
       if (width > maxWidth) {
@@ -199,7 +228,10 @@ const compressImageDataUrl = (dataUrl: string) => {
       if (!ctx) return reject(new Error('Canvas 初始化失败'));
 
       ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', 0.8));
+      const output = outputType === 'image/png'
+        ? canvas.toDataURL('image/png')
+        : canvas.toDataURL('image/jpeg', jpegQuality);
+      resolve(output);
     };
     img.onerror = () => reject(new Error('图片压缩失败'));
   });
@@ -528,40 +560,122 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
     try {
       const parsedRows: ParsedRow[] = [];
       let rowCounter = 1;
+      let failedCount = 0;
+      const failureMessages: string[] = [];
 
-      for (const file of files) {
-        const dataUrl = await fileToDataUrl(file);
-        const compressed = await compressImageDataUrl(dataUrl);
-
+      const callAnalyzeStockApi = async (payloadDataUrl: string, strategyLabel: string) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 70000);
         const response = await fetch('/api/analyze-stock', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Data: compressed, mimeType: file.type || 'image/jpeg' })
+          body: JSON.stringify({
+            base64Data: payloadDataUrl,
+            mimeType: payloadDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+          }),
+          signal: controller.signal
         });
+        clearTimeout(timer);
 
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload?.error || '图片识别失败');
+        const text = await response.text();
+        let payload: any = null;
+        try {
+          payload = text ? JSON.parse(text) : null;
+        } catch {
+          payload = null;
         }
 
-        const items = Array.isArray(payload?.items) ? payload.items : [];
-        items.forEach((item: any) => {
-          const model = String(item?.model || item?.productModel || item?.productName || '').trim();
-          const qty = Number(item?.quantity ?? item?.qty ?? 0);
-          if (!model || !Number.isFinite(qty) || qty <= 0) return;
-          parsedRows.push({ model, qty, rowIndex: rowCounter++ });
-        });
+        if (!response.ok) {
+          const snippet = text ? text.slice(0, 160) : '';
+          throw new Error(`[${strategyLabel}] ${payload?.error || `HTTP ${response.status}`} ${snippet}`.trim());
+        }
+
+        if (!payload) {
+          throw new Error(`[${strategyLabel}] 服务端返回了非 JSON 内容`);
+        }
+        return payload;
+      };
+
+      const isParseRelatedError = (error: any) => {
+        const msg = String(error?.message || error || '').toLowerCase();
+        return (
+          msg.includes('图片数据格式无效') ||
+          msg.includes('图片格式解析失败') ||
+          msg.includes('expected pattern') ||
+          msg.includes('invalid image') ||
+          msg.includes('invalid argument') ||
+          msg.includes('function_invocation_failed')
+        );
+      };
+
+      for (const file of files) {
+        try {
+          const dataUrl = await toJpegDataUrlIfNeeded(file);
+
+          const retryCandidates: Array<{ label: string; makeDataUrl: () => Promise<string> }> = [
+            { label: 'jpeg-standard', makeDataUrl: () => compressImageDataUrl(dataUrl, 'image/jpeg') },
+            { label: 'png-fallback', makeDataUrl: () => compressImageDataUrl(dataUrl, 'image/png') },
+            { label: 'raw-original', makeDataUrl: async () => dataUrl },
+            { label: 'jpeg-lowres', makeDataUrl: () => compressImageDataUrl(dataUrl, 'image/jpeg', { maxWidth: 960, jpegQuality: 0.65 }) }
+          ];
+
+          let payload: any = null;
+          let lastRetryError: any = null;
+
+          for (let i = 0; i < retryCandidates.length; i++) {
+            try {
+              const candidate = retryCandidates[i];
+              const candidateDataUrl = await candidate.makeDataUrl();
+              payload = await callAnalyzeStockApi(candidateDataUrl, candidate.label);
+              lastRetryError = null;
+              break;
+            } catch (retryErr: any) {
+              lastRetryError = retryErr;
+              if (!isParseRelatedError(retryErr)) throw retryErr;
+            }
+          }
+
+          if (!payload && lastRetryError) throw lastRetryError;
+
+          const items = Array.isArray(payload?.items) ? payload.items : [];
+          items.forEach((item: any) => {
+            const model = String(item?.model || item?.productModel || item?.productName || '').trim();
+            const qty = Number(item?.quantity ?? item?.qty ?? 0);
+            if (!model || !Number.isFinite(qty) || qty <= 0) return;
+            parsedRows.push({ model, qty, rowIndex: rowCounter++ });
+          });
+        } catch (singleErr: any) {
+          failedCount += 1;
+          const rawMessage = String(singleErr?.message || singleErr || '图片识别失败');
+          const lower = rawMessage.toLowerCase();
+          const readable = lower.includes('function_invocation_failed')
+            ? '云端识别函数执行失败（可能超时或运行时异常）'
+            : lower.includes('did not match the expected pattern')
+              ? '图片格式解析失败，请重拍或改用 JPG/PNG 图片'
+              : rawMessage;
+          failureMessages.push(readable);
+        }
       }
 
       if (parsedRows.length === 0) {
-        alert('未从图片中识别到有效的“型号 + 数量”数据');
+        const head = failureMessages[0] || '未从图片中识别到有效的“型号 + 数量”数据';
+        alert(files.length > 1 ? `${head}（共 ${failedCount} 张失败）` : head);
         return;
+      }
+
+      if (failedCount > 0) {
+        alert(`部分图片识别失败（${failedCount}/${files.length}），其余结果已生成预览`);
       }
 
       await applyParsedRows(parsedRows, parsedRows.length, 'image');
     } catch (error) {
       console.error('Image stock recognition failed:', error);
-      alert('图片识别入库失败，请检查图片清晰度或稍后重试');
+      const raw = String((error as any)?.message || error || '图片识别入库失败');
+      const lower = raw.toLowerCase();
+      const message = lower.includes('function_invocation_failed')
+        ? '图片识别入库失败：云端识别函数执行失败（可能超时或运行时异常），请稍后重试'
+        : raw;
+      alert(message);
     } finally {
       setProcessing(false);
       if (imageInputRef.current) imageInputRef.current.value = '';
@@ -664,7 +778,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
       <input
         ref={imageInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.heic,.heif"
         multiple
         className="hidden"
         onChange={(e) => {
