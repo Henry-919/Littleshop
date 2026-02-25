@@ -1,24 +1,116 @@
-import React, { useState, useRef } from 'react';
-import { useStore } from '../hooks/useStore';
-import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X, Plus } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X } from 'lucide-react';
 
-// 1. 相似度算法：用于匹配现有库存商品
-const getSimilarity = (a: string, b: string): number => {
-  const aLower = a.toLowerCase();
-  const bLower = b.toLowerCase();
-  if (aLower === bLower) return 1;
-  if (aLower.includes(bLower) || bLower.includes(aLower)) return 0.8;
-  return 0;
+type MatchCandidate = {
+  productId: string;
+  productName: string;
+  score: number;
 };
 
-// 2. 图片压缩工具函数：减少传输体积，大幅提升识别启动速度
-const compressImage = (base64Str: string): Promise<string> => {
+type ParsedReceiptItem = {
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  totalAmount: number;
+};
+
+type ReviewItem = ParsedReceiptItem & {
+  reason: string;
+  bestCandidate?: MatchCandidate;
+  hasMathDiscrepancy: boolean;
+};
+
+type PreviewItem = ParsedReceiptItem & {
+  status: 'auto' | 'review';
+  reason: string;
+  bestCandidate?: MatchCandidate;
+  hasMathDiscrepancy: boolean;
+};
+
+type PendingAnalysis = {
+  saleDate?: string;
+  totalItems: number;
+  autoSales: Array<{ productId: string; productName: string; quantity: number }>;
+  reviewItems: ReviewItem[];
+  previewItems: PreviewItem[];
+};
+
+type ReceiptReport = {
+  saleDate?: string;
+  totalItems: number;
+  autoMatchedItems: number;
+  manualMatchedItems: number;
+  reviewItems: ReviewItem[];
+};
+
+const AUTO_MATCH_SCORE = 0.88;
+const AMBIGUOUS_GAP = 0.08;
+
+const normalizeText = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[\s_\-./\\()[\]{}]+/g, '')
+    .replace(/[^\u4e00-\u9fa5a-z0-9]/g, '');
+
+const tokenize = (value: string) => {
+  const normalized = value.toLowerCase().replace(/[^\u4e00-\u9fa5a-z0-9]+/g, ' ').trim();
+  if (!normalized) return [] as string[];
+  return normalized.split(/\s+/).filter(Boolean);
+};
+
+const levenshteinDistance = (a: string, b: string): number => {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const matrix: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost);
+    }
+  }
+  return matrix[a.length][b.length];
+};
+
+const jaccardSimilarity = (aTokens: string[], bTokens: string[]) => {
+  if (!aTokens.length || !bTokens.length) return 0;
+  const aSet = new Set(aTokens);
+  const bSet = new Set(bTokens);
+  let intersection = 0;
+  for (const token of aSet) {
+    if (bSet.has(token)) intersection++;
+  }
+  const union = new Set([...aSet, ...bSet]).size;
+  return union === 0 ? 0 : intersection / union;
+};
+
+const scoreNameSimilarity = (source: string, target: string) => {
+  const sourceNormalized = normalizeText(source);
+  const targetNormalized = normalizeText(target);
+
+  if (!sourceNormalized || !targetNormalized) return 0;
+  if (sourceNormalized === targetNormalized) return 1;
+  if (sourceNormalized.includes(targetNormalized) || targetNormalized.includes(sourceNormalized)) return 0.92;
+
+  const maxLen = Math.max(sourceNormalized.length, targetNormalized.length);
+  const editScore = maxLen === 0 ? 0 : 1 - levenshteinDistance(sourceNormalized, targetNormalized) / maxLen;
+  const tokenScore = jaccardSimilarity(tokenize(source), tokenize(target));
+  const finalScore = editScore * 0.65 + tokenScore * 0.35;
+  return Math.max(0, Math.min(1, finalScore));
+};
+
+// 2. 图片压缩工具函数：与批量补库存识别链路保持一致
+const compressImageDataUrl = (dataUrl: string): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.src = base64Str;
+    img.src = dataUrl;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const MAX_WIDTH = 1200; // 兼顾清晰度与速度
+      const MAX_WIDTH = 1400;
       let width = img.width;
       let height = img.height;
 
@@ -33,8 +125,7 @@ const compressImage = (base64Str: string): Promise<string> => {
       if (!ctx) return reject(new Error("Canvas context failed"));
       
       ctx.drawImage(img, 0, 0, width, height);
-      // 导出为 jpeg 格式，质量 0.8，并只保留 base64 数据部分
-      const compressed = canvas.toDataURL('image/jpeg', 0.75).split(',')[1];
+      const compressed = canvas.toDataURL('image/jpeg', 0.8);
       resolve(compressed);
     };
     img.onerror = () => reject(new Error("图片加载失败"));
@@ -42,16 +133,25 @@ const compressImage = (base64Str: string): Promise<string> => {
 };
 
 export function ReceiptScanner({ store }: { store: any }) {
-  const { products, addSale, addProduct } = store;
+  const { products, addSale } = store;
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{
-    items: any[];
-    saleDate?: string;
-  } | null>(null);
+  const [applyingAuto, setApplyingAuto] = useState(false);
+  const [applyingManual, setApplyingManual] = useState(false);
+  const [pendingAnalysis, setPendingAnalysis] = useState<PendingAnalysis | null>(null);
+  const [report, setReport] = useState<ReceiptReport | null>(null);
+  const [manualSelections, setManualSelections] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [salesperson, setSalesperson] = useState('自动扫描');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const productIndex = useMemo(() => {
+    return (products || []).map((p: any) => ({ id: p.id, name: p.name }));
+  }, [products]);
+
+  const selectedManualCount = useMemo(() => {
+    return Object.values(manualSelections).filter(Boolean).length;
+  }, [manualSelections]);
 
   // 图片上传处理
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,101 +174,124 @@ export function ReceiptScanner({ store }: { store: any }) {
     }
   };
 
-  // 核心：调用后端 AI 接口 (已优化为并发请求)
+  const buildMatchPreview = (items: ParsedReceiptItem[], saleDate?: string) => {
+    const autoSales: Array<{ productId: string; productName: string; quantity: number }> = [];
+    const reviewItems: ReviewItem[] = [];
+    const previewItems: PreviewItem[] = [];
+
+    items.forEach((item) => {
+      const ranked = productIndex
+        .map((product: any) => ({
+          productId: product.id,
+          productName: product.name,
+          score: scoreNameSimilarity(item.productName, product.name)
+        }))
+        .sort((a: MatchCandidate, b: MatchCandidate) => b.score - a.score);
+
+      const best = ranked[0];
+      const second = ranked[1];
+      const hasMathDiscrepancy = Math.abs(item.unitPrice * item.quantity - item.totalAmount) > 0.1;
+
+      if (!best || best.score < AUTO_MATCH_SCORE) {
+        const reviewItem: ReviewItem = {
+          ...item,
+          reason: '匹配分低于高置信阈值',
+          bestCandidate: best,
+          hasMathDiscrepancy
+        };
+        reviewItems.push(reviewItem);
+        previewItems.push({ ...reviewItem, status: 'review' });
+        return;
+      }
+
+      if (second && best.score - second.score < AMBIGUOUS_GAP) {
+        const reviewItem: ReviewItem = {
+          ...item,
+          reason: '存在多个相近商品，匹配不够唯一',
+          bestCandidate: best,
+          hasMathDiscrepancy
+        };
+        reviewItems.push(reviewItem);
+        previewItems.push({ ...reviewItem, status: 'review' });
+        return;
+      }
+
+      autoSales.push({
+        productId: best.productId,
+        productName: best.productName,
+        quantity: item.quantity
+      });
+      previewItems.push({
+        ...item,
+        status: 'auto',
+        reason: '高置信度且匹配唯一',
+        bestCandidate: best,
+        hasMathDiscrepancy
+      });
+    });
+
+    const nextSelections: Record<number, string> = {};
+    reviewItems.forEach((item, index) => {
+      if (item.bestCandidate) nextSelections[index] = item.bestCandidate.productId;
+    });
+    setManualSelections(nextSelections);
+
+    setPendingAnalysis({
+      saleDate,
+      totalItems: items.length,
+      autoSales,
+      reviewItems,
+      previewItems
+    });
+    setReport(null);
+  };
+
+  // 核心：识别 -> 匹配 -> 预览
   const processImage = async () => {
     if (images.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      // 使用 Promise.all 并发处理所有图片，提速显著
-      // 控制并发数并实现重试与超时
-      const MAX_CONCURRENCY = 2;
-      const RETRY_ATTEMPTS = 3;
-      const TIMEOUT_MS = 60000;
+      const parsedItems: ParsedReceiptItem[] = [];
+      let detectedDate = '';
 
-      const semaphore = { count: 0 };
-      const runWithConcurrency = async (fn: () => Promise<any>) => {
-        while (semaphore.count >= MAX_CONCURRENCY) {
-          await new Promise(r => setTimeout(r, 100));
-        }
-        semaphore.count++;
-        try {
-          return await fn();
-        } finally {
-          semaphore.count--;
-        }
-      };
-
-      const fetchWithRetryAndTimeout = async (compressedBase64: string) => {
-        let attempt = 0;
-        while (attempt < RETRY_ATTEMPTS) {
-          attempt++;
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-          try {
-            const response = await fetch('/api/analyze', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ base64Data: compressedBase64, mimeType: 'image/jpeg' }),
-              signal: controller.signal,
-            });
-            clearTimeout(timer);
-            if (response.status === 429) {
-              // 等待并重试
-              await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
-              continue;
-            }
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-              const text = await response.text();
-              throw new Error(`Server returned non-JSON response: ${text.slice(0,200)}`);
-            }
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'AI 解析失败');
-            return data;
-          } catch (err: any) {
-            clearTimeout(timer);
-            if (err.name === 'AbortError') {
-              // 超时，重试
-              continue;
-            }
-            if (attempt >= RETRY_ATTEMPTS) throw err;
-            await new Promise(r => setTimeout(r, 300 * attempt));
-          }
-        }
-        throw new Error('AI 解析 - 达到重试上限');
-      };
-
-      const uploadPromises = images.map(async (img) => {
-        const compressedBase64 = await compressImage(img);
-        return runWithConcurrency(() => fetchWithRetryAndTimeout(compressedBase64));
-      });
-
-      const allResults = await Promise.all(uploadPromises);
-
-      // 合并所有图片的识别结果
-      let allItems: any[] = [];
-      let detectedDate = "";
-
-      allResults.forEach(data => {
-        if (data.saleDate) detectedDate = data.saleDate;
-        
-        const matched = (data.items || []).map((item: any) => {
-          const bestMatch = products.find((p: any) => getSimilarity(p.name, item.productName) > 0.7);
-          return {
-            ...item,
-            matchedProductId: bestMatch ? bestMatch.id : 'CREATE_NEW',
-            matchedProductName: bestMatch ? bestMatch.name : undefined,
-            hasMathDiscrepancy: Math.abs(item.unitPrice * item.quantity - item.totalAmount) > 0.1
-          };
+      for (const imageDataUrl of images) {
+        const compressed = await compressImageDataUrl(imageDataUrl);
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64Data: compressed, mimeType: 'image/jpeg' })
         });
-        allItems = [...allItems, ...matched];
-      });
 
-      setResult({ items: allItems, saleDate: detectedDate });
-      if (allItems.some((item) => item.matchedProductId === 'CREATE_NEW')) {
-        setError('存在未匹配商品，请先在库存中创建对应商品后再保存。');
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error || 'AI 解析失败');
+        }
+
+        if (payload?.saleDate) detectedDate = payload.saleDate;
+
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        items.forEach((item: any) => {
+          const productName = String(item?.productName || '').trim();
+          const unitPrice = Number(item?.unitPrice ?? 0);
+          const quantity = Number(item?.quantity ?? 0);
+          const totalAmount = Number(item?.totalAmount ?? 0);
+          if (!productName || !Number.isFinite(quantity) || quantity <= 0) return;
+          parsedItems.push({
+            productName,
+            unitPrice: Number.isFinite(unitPrice) ? unitPrice : 0,
+            quantity,
+            totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0
+          });
+        });
       }
+
+      if (parsedItems.length === 0) {
+        setError('未识别到可用商品数据，请检查发票清晰度');
+        return;
+      }
+
+      buildMatchPreview(parsedItems, detectedDate || undefined);
     } catch (err: any) {
       console.error(err);
       setError(err.message);
@@ -177,28 +300,80 @@ export function ReceiptScanner({ store }: { store: any }) {
     }
   };
 
-  // 保存到数据库
-  const handleSave = async () => {
-    if (!result) return;
-    if (result.items.some((item) => item.matchedProductId === 'CREATE_NEW')) {
-      setError('存在未匹配商品，已阻止保存。请先在库存中创建对应商品后再保存。');
+  const exitPendingPreview = () => {
+    setPendingAnalysis(null);
+    setManualSelections({});
+  };
+
+  const applyAutoMatchedSales = async () => {
+    if (!pendingAnalysis) return;
+    setApplyingAuto(true);
+    try {
+      for (const sale of pendingAnalysis.autoSales) {
+        await addSale(sale.productId, sale.quantity, salesperson, pendingAnalysis.saleDate);
+      }
+
+      await store.fetchData?.();
+
+      setReport({
+        saleDate: pendingAnalysis.saleDate,
+        totalItems: pendingAnalysis.totalItems,
+        autoMatchedItems: pendingAnalysis.autoSales.length,
+        manualMatchedItems: 0,
+        reviewItems: pendingAnalysis.reviewItems
+      });
+      setPendingAnalysis(null);
+    } catch (err: any) {
+      setError(err?.message || '执行自动入账失败');
+    } finally {
+      setApplyingAuto(false);
+    }
+  };
+
+  const applySelectedManualSales = async () => {
+    if (!report) return;
+
+    const selectedIndexes = Object.keys(manualSelections)
+      .map(Number)
+      .filter((index) => !!manualSelections[index]);
+
+    if (selectedIndexes.length === 0) {
+      setError('请先为待复核项选择目标商品');
       return;
     }
-    setLoading(true);
+
+    setApplyingManual(true);
+    setError(null);
     try {
-      for (const item of result.items) {
-        let finalId = item.matchedProductId;
-        if (finalId === 'CREATE_NEW') continue;
-        await addSale(finalId, item.quantity, salesperson, result.saleDate);
+      for (const index of selectedIndexes) {
+        const item = report.reviewItems[index];
+        const productId = manualSelections[index];
+        if (!item || !productId) continue;
+        await addSale(productId, item.quantity, salesperson, report.saleDate);
       }
-      alert("入库成功！");
-      setResult(null);
-      setImages([]);
-      await store.fetchData(); // Refresh store data to update sales history
-    } catch (err) {
-      alert("保存失败");
+
+      const selectedSet = new Set(selectedIndexes);
+      const remainingReview = report.reviewItems.filter((_, index) => !selectedSet.has(index));
+      const nextSelections: Record<number, string> = {};
+      remainingReview.forEach((item, index) => {
+        if (item.bestCandidate) nextSelections[index] = item.bestCandidate.productId;
+      });
+
+      setManualSelections(nextSelections);
+      setReport((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          manualMatchedItems: prev.manualMatchedItems + selectedIndexes.length,
+          reviewItems: remainingReview
+        };
+      });
+
+      await store.fetchData?.();
+    } catch (err: any) {
+      setError(err?.message || '执行人工复核入账失败');
     } finally {
-      setLoading(false);
+      setApplyingManual(false);
     }
   };
 
@@ -210,7 +385,7 @@ export function ReceiptScanner({ store }: { store: any }) {
           <h2 className="text-xl font-bold flex items-center gap-2">
             <Camera className="text-emerald-500" /> 手写小票识别
           </h2>
-          <p className="text-slate-500 text-sm mt-1">上传 WANG YUWU INTERNATIONAL SPC 发票照片</p>
+          <p className="text-slate-500 text-sm mt-1">流程：高置信匹配 → 预览复核 → 执行入账</p>
         </div>
         <div className="flex items-center gap-2 w-full md:w-auto">
           <span className="text-sm font-medium text-slate-500 shrink-0">销售员:</span>
@@ -248,11 +423,11 @@ export function ReceiptScanner({ store }: { store: any }) {
           {images.length > 0 && (
             <button 
               onClick={processImage} 
-              disabled={loading}
+              disabled={loading || applyingAuto || applyingManual}
               className="w-full py-3 bg-emerald-500 text-white rounded-xl font-bold disabled:opacity-50 flex justify-center items-center gap-2"
             >
               {loading ? <Loader2 className="animate-spin" /> : <CheckCircle size={20} />}
-              {loading ? "AI 并发深度识别中..." : "开始识别小票"}
+              {loading ? "AI 识别并匹配中..." : "开始识别并生成预览"}
             </button>
           )}
         </div>
@@ -260,15 +435,16 @@ export function ReceiptScanner({ store }: { store: any }) {
         {/* 右侧：识别结果 */}
         <div className="bg-slate-50 rounded-2xl p-4 min-h-[300px]">
           {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-xs flex items-center gap-2"><AlertCircle size={14}/>{error}</div>}
-          
-          {result ? (
+
+          {pendingAnalysis ? (
             <div className="space-y-3">
               <div className="flex justify-between text-sm font-medium border-b pb-2">
-                <span>识别日期: {result.saleDate || '未检测到'}</span>
-                <span>共 {result.items.length} 项</span>
+                <span>识别日期: {pendingAnalysis.saleDate || '未检测到'}</span>
+                <span>共 {pendingAnalysis.totalItems} 项（自动 {pendingAnalysis.autoSales.length}，待复核 {pendingAnalysis.reviewItems.length}）</span>
               </div>
+
               <div className="max-h-[400px] overflow-y-auto space-y-2">
-                {result.items.map((item, idx) => (
+                {pendingAnalysis.previewItems.map((item, idx) => (
                   <div key={idx} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
                     <div className="flex justify-between items-start">
                       <span className="font-bold text-slate-800">{item.productName}</span>
@@ -278,16 +454,93 @@ export function ReceiptScanner({ store }: { store: any }) {
                       {item.quantity} x ￥{item.unitPrice}
                       {item.hasMathDiscrepancy && <span className="ml-2 text-amber-500 font-medium">⚠️ 金额校验异常</span>}
                     </div>
-                    <div className="mt-2 text-[10px] text-slate-500">
-                      {item.matchedProductId === 'CREATE_NEW'
-                        ? '自动识别：未找到匹配商品，将作为新商品创建'
-                        : `自动匹配：${item.matchedProductName || '已入库商品'}`}
+                    <div className="mt-2 text-[10px] text-slate-500 flex flex-wrap items-center gap-2">
+                      <span className={item.status === 'auto' ? 'text-emerald-600 font-medium' : 'text-amber-600 font-medium'}>
+                        {item.status === 'auto' ? '自动匹配' : '待人工复核'}
+                      </span>
+                      <span>{item.reason}</span>
+                      {item.bestCandidate && <span>候选：{item.bestCandidate.productName}（{(item.bestCandidate.score * 100).toFixed(1)}%）</span>}
                     </div>
                   </div>
                 ))}
               </div>
-              <button onClick={handleSave} className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold mt-4 flex items-center justify-center gap-2">
-                <Save size={18} /> 确认保存到销售额
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2">
+                <button
+                  onClick={exitPendingPreview}
+                  disabled={applyingAuto}
+                  className="w-full py-3 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold disabled:opacity-50"
+                >
+                  退出预览
+                </button>
+                <button
+                  onClick={applyAutoMatchedSales}
+                  disabled={applyingAuto}
+                  className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {applyingAuto ? <Loader2 className="animate-spin" /> : <Save size={18} />} {applyingAuto ? '执行中...' : '确认执行自动入账'}
+                </button>
+              </div>
+            </div>
+          ) : report ? (
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm font-medium border-b pb-2">
+                <span>识别日期: {report.saleDate || '未检测到'}</span>
+                <span>自动 {report.autoMatchedItems}，人工 {report.manualMatchedItems}，待复核 {report.reviewItems.length}</span>
+              </div>
+
+              {report.reviewItems.length === 0 ? (
+                <div className="text-sm text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg p-3">
+                  所有项目已处理完成。
+                </div>
+              ) : (
+                <>
+                  <div className="max-h-[380px] overflow-y-auto space-y-2">
+                    {report.reviewItems.map((item, idx) => (
+                      <div key={idx} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                        <div className="flex justify-between items-start gap-2">
+                          <span className="font-bold text-slate-800">{item.productName}</span>
+                          <span className="text-emerald-600 font-bold">￥{item.totalAmount}</span>
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">{item.quantity} x ￥{item.unitPrice}</div>
+                        <div className="text-[11px] text-amber-600 mt-1">{item.reason}</div>
+                        <div className="mt-2 text-[10px] text-slate-500">
+                          {item.bestCandidate
+                            ? `最佳候选：${item.bestCandidate.productName}（${(item.bestCandidate.score * 100).toFixed(1)}%）`
+                            : '暂无候选，请手动选择'}
+                        </div>
+                        <select
+                          value={manualSelections[idx] || ''}
+                          onChange={(e) => setManualSelections((prev) => ({ ...prev, [idx]: e.target.value }))}
+                          className="mt-2 w-full px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                        >
+                          <option value="">请选择匹配商品</option>
+                          {productIndex.map((product: any) => (
+                            <option key={product.id} value={product.id}>{product.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={applySelectedManualSales}
+                    disabled={applyingManual || selectedManualCount === 0}
+                    className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {applyingManual ? <Loader2 className="animate-spin" /> : <Save size={18} />} {applyingManual ? '执行中...' : `执行已选复核项（${selectedManualCount}）`}
+                  </button>
+                </>
+              )}
+
+              <button
+                onClick={() => {
+                  setReport(null);
+                  setManualSelections({});
+                  setImages([]);
+                }}
+                className="w-full py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold"
+              >
+                完成并重置
               </button>
             </div>
           ) : (
