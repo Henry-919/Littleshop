@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
-const preferredModels = ['gemini-flash-latest', 'gemini-2.5-flash'];
-const MODEL_TIMEOUT_MS = 18000;
+const preferredModels = ['gemini-flash-latest'];
+const MODEL_TIMEOUT_MS = 8000;
 
 type AnalyzeInput = {
   base64Data: string;
@@ -80,6 +80,10 @@ export async function analyzeWithGemini({
     return { status: 400, body: { error: '图片数据格式无效，请重新上传图片' } };
   }
 
+  if (normalizedBase64.length > 2_000_000) {
+    return { status: 413, body: { error: '图片过大，请压缩后重试（建议单张不超过 2MB）' } };
+  }
+
   const normalizedMimeType = normalizeMimeType(mimeType);
 
   const ai = new GoogleGenAI({ apiKey });
@@ -139,7 +143,7 @@ export async function analyzeWithGemini({
   if (!response) {
     const msg = String(lastError?.message || '').toLowerCase();
     if (msg.includes('ai_timeout')) {
-      return { status: 504, body: { error: 'ai_timeout', details: 'AI 响应超时，请稍后重试' } };
+      return { status: 504, body: { error: 'ai_timeout', details: 'AI 响应超时，请稍后重试或减少单次上传图片数量' } };
     }
     return { status: 502, body: { error: 'ai_call_failed', details: lastError?.message || 'unknown' } };
   }

@@ -420,6 +420,10 @@ export function ReceiptScanner({ store }: { store: any }) {
           const lower = rawMessage.toLowerCase();
           const message = lower.includes('did not match the expected pattern')
             ? '图片格式解析失败，请重拍或改用 JPG/PNG 图片'
+            : lower.includes('ai_timeout')
+              ? '云端识别超时，请减少单次上传图片数量后重试'
+              : lower.includes('图片过大') || lower.includes('http 413')
+                ? '图片体积过大，请重拍或压缩后再识别'
             : lower.includes('function_invocation_failed')
               ? '云端识别函数执行失败（可能超时或运行时异常），请稍后重试'
               : rawMessage;
@@ -444,6 +448,10 @@ export function ReceiptScanner({ store }: { store: any }) {
       const lower = rawMessage.toLowerCase();
       const message = lower.includes('did not match the expected pattern')
         ? '图片格式解析失败，请重拍或改用 JPG/PNG 图片'
+        : lower.includes('ai_timeout')
+          ? '云端识别超时，请减少单次上传图片数量后重试'
+          : lower.includes('图片过大') || lower.includes('http 413')
+            ? '图片体积过大，请重拍或压缩后再识别'
         : lower.includes('function_invocation_failed')
           ? '云端识别函数执行失败（可能超时或运行时异常），请稍后重试'
           : rawMessage;
