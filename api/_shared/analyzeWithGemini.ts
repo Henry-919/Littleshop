@@ -15,6 +15,31 @@ type AnalyzeResult = {
   body: any;
 };
 
+function normalizeMimeType(input?: string) {
+  const fallback = 'image/jpeg';
+  if (!input) return fallback;
+  const value = String(input).trim().toLowerCase();
+  if (!value) return fallback;
+  if (!/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(value)) {
+    return fallback;
+  }
+  return value;
+}
+
+function extractBase64Data(input: string) {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+
+  const dataUrlMatch = raw.match(/^data:[^;]+;base64,(.+)$/i);
+  const payload = (dataUrlMatch ? dataUrlMatch[1] : raw).replace(/\s+/g, '');
+  if (!payload) return '';
+
+  if (!/^[A-Za-z0-9+/=]+$/.test(payload)) {
+    return '';
+  }
+  return payload;
+}
+
 export function setCors(res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -33,6 +58,13 @@ export async function analyzeWithGemini({
     return { status: 500, body: { error: 'GEMINI_API_KEY is not configured' } };
   }
 
+  const normalizedBase64 = extractBase64Data(base64Data);
+  if (!normalizedBase64) {
+    return { status: 400, body: { error: '图片数据格式无效，请重新上传图片' } };
+  }
+
+  const normalizedMimeType = normalizeMimeType(mimeType);
+
   const ai = new GoogleGenAI({ apiKey });
   let lastError: any = null;
   let response: any = null;
@@ -49,8 +81,8 @@ export async function analyzeWithGemini({
               },
               {
                 inlineData: {
-                  data: String(base64Data).replace(/^data:image\/\w+;base64,/, ''),
-                  mimeType: mimeType || 'image/jpeg'
+                  data: normalizedBase64,
+                  mimeType: normalizedMimeType
                 }
               }
             ]

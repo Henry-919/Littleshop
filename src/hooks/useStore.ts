@@ -70,6 +70,24 @@ export function useStore(storeId?: string) {
 
   // --- 核心操作 ---
 
+  const normalizeSaleDate = (input?: string) => {
+    const fallback = new Date().toISOString();
+    if (!input) return fallback;
+
+    const raw = String(input).trim();
+    if (!raw) return fallback;
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      return `${raw}T00:00:00.000Z`;
+    }
+
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) {
+      return fallback;
+    }
+    return parsed.toISOString();
+  };
+
   const addProduct = async (product: Omit<Product, 'id'>) => {
     if (!storeId) return { data: null, error: new Error('store_id is required') as any };
     const insertPayload = {
@@ -139,7 +157,7 @@ export function useStore(storeId?: string) {
     if (!product) return false;
 
     const newStock = product.stock - quantity;
-    const saleDate = date || new Date().toISOString();
+    const saleDate = normalizeSaleDate(date);
 
     const { data: saleData, error: saleError } = await supabase.from('sales').insert([{
       product_id: productId,
