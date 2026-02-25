@@ -377,45 +377,47 @@ export function ReceiptScanner({ store }: { store: any }) {
     }
   };
 
+  const showMobileActions = !!pendingAnalysis || !!(report && report.reviewItems.length > 0);
+
   return (
-    <div className="p-4 max-w-4xl mx-auto space-y-4">
+    <div className="p-3 sm:p-4 max-w-4xl mx-auto space-y-3 sm:space-y-4">
       {/* 顶部控制栏 */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <Camera className="text-emerald-500" /> 手写小票识别
+      <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 sm:gap-4">
+        <div className="min-w-0">
+          <h2 className="text-base sm:text-xl font-bold flex items-center gap-2">
+            <Camera className="text-emerald-500 w-5 h-5" /> 手写小票识别
           </h2>
-          <p className="text-slate-500 text-sm mt-1">流程：高置信匹配 → 预览复核 → 执行入账</p>
+          <p className="text-slate-500 text-xs sm:text-sm mt-1">流程：高置信匹配 → 预览复核 → 执行入账</p>
         </div>
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <span className="text-sm font-medium text-slate-500 shrink-0">销售员:</span>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full md:w-auto">
+          <span className="text-xs sm:text-sm font-medium text-slate-500 shrink-0">销售员:</span>
           <input 
             type="text" 
             value={salesperson} 
             onChange={(e) => setSalesperson(e.target.value)}
             placeholder="输入销售员姓名"
-            className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 w-full md:w-32"
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 w-full md:w-40"
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
         {/* 左侧：上传预览 */}
         <div className="space-y-4">
           <div 
             onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center hover:bg-slate-50 cursor-pointer transition-all"
+            className="border-2 border-dashed border-slate-200 rounded-xl sm:rounded-2xl p-6 sm:p-8 text-center hover:bg-slate-50 cursor-pointer transition-all"
           >
             <input type="file" ref={fileInputRef} hidden multiple onChange={handleImageUpload} accept="image/*" />
             <Upload className="mx-auto w-10 h-10 text-slate-300 mb-2" />
-            <span className="text-sm text-slate-600">点击或拖拽上传发票</span>
+            <span className="text-xs sm:text-sm text-slate-600">点击或拖拽上传发票</span>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
             {images.map((img, i) => (
               <div key={i} className="relative aspect-square rounded-lg overflow-hidden border">
                 <img src={img} className="object-cover w-full h-full" />
-                <button onClick={() => setImages(images.filter((_, idx) => idx !== i))} className="absolute top-1 right-1 bg-white rounded-full p-1 shadow"><X size={12}/></button>
+                <button onClick={() => setImages(images.filter((_, idx) => idx !== i))} className="absolute top-1 right-1 bg-white rounded-full p-1.5 shadow"><X size={12}/></button>
               </div>
             ))}
           </div>
@@ -424,7 +426,7 @@ export function ReceiptScanner({ store }: { store: any }) {
             <button 
               onClick={processImage} 
               disabled={loading || applyingAuto || applyingManual}
-              className="w-full py-3 bg-emerald-500 text-white rounded-xl font-bold disabled:opacity-50 flex justify-center items-center gap-2"
+              className="w-full py-3.5 bg-emerald-500 text-white rounded-xl font-bold disabled:opacity-50 flex justify-center items-center gap-2"
             >
               {loading ? <Loader2 className="animate-spin" /> : <CheckCircle size={20} />}
               {loading ? "AI 识别并匹配中..." : "开始识别并生成预览"}
@@ -433,60 +435,96 @@ export function ReceiptScanner({ store }: { store: any }) {
         </div>
 
         {/* 右侧：识别结果 */}
-        <div className="bg-slate-50 rounded-2xl p-4 min-h-[300px]">
+        <div className="bg-slate-50 rounded-xl sm:rounded-2xl p-3 sm:p-4 min-h-[260px] sm:min-h-[300px]">
           {error && <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-xs flex items-center gap-2"><AlertCircle size={14}/>{error}</div>}
 
           {pendingAnalysis ? (
-            <div className="space-y-3">
-              <div className="flex justify-between text-sm font-medium border-b pb-2">
-                <span>识别日期: {pendingAnalysis.saleDate || '未检测到'}</span>
-                <span>共 {pendingAnalysis.totalItems} 项（自动 {pendingAnalysis.autoSales.length}，待复核 {pendingAnalysis.reviewItems.length}）</span>
+            <div className="space-y-3 border border-sky-100 bg-sky-50/60 rounded-xl p-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-sm font-bold text-sky-800">
+                  识别预览（发票）
+                </div>
+                <div className="w-full sm:w-auto flex gap-2">
+                  <button
+                    onClick={exitPendingPreview}
+                    disabled={applyingAuto}
+                    className="flex-1 sm:flex-none px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    退出预览
+                  </button>
+                  <button
+                    onClick={applyAutoMatchedSales}
+                    disabled={applyingAuto}
+                    className="flex-1 sm:flex-none px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {applyingAuto ? '执行中...' : '确认执行自动入账'}
+                  </button>
+                </div>
               </div>
 
-              <div className="max-h-[400px] overflow-y-auto space-y-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="bg-white rounded-lg p-2 text-center">
+                  <p className="text-[11px] text-slate-500">识别日期</p>
+                  <p className="font-bold text-slate-800 truncate">{pendingAnalysis.saleDate || '未检测到'}</p>
+                </div>
+                <div className="bg-white rounded-lg p-2 text-center">
+                  <p className="text-[11px] text-slate-500">总条目</p>
+                  <p className="font-bold text-slate-800">{pendingAnalysis.totalItems}</p>
+                </div>
+                <div className="bg-emerald-50 rounded-lg p-2 text-center">
+                  <p className="text-[11px] text-emerald-600">可自动入账</p>
+                  <p className="font-bold text-emerald-700">{pendingAnalysis.autoSales.length}</p>
+                </div>
+                <div className="bg-amber-50 rounded-lg p-2 text-center">
+                  <p className="text-[11px] text-amber-600">待人工复核</p>
+                  <p className="font-bold text-amber-700">{pendingAnalysis.reviewItems.length}</p>
+                </div>
+              </div>
+
+              <div className="max-h-[42dvh] sm:max-h-[400px] overflow-y-auto space-y-2 pr-0.5">
                 {pendingAnalysis.previewItems.map((item, idx) => (
-                  <div key={idx} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                    <div className="flex justify-between items-start">
-                      <span className="font-bold text-slate-800">{item.productName}</span>
-                      <span className="text-emerald-600 font-bold">￥{item.totalAmount}</span>
+                  <div key={idx} className="bg-white rounded-lg border border-sky-100 p-2.5 text-xs">
+                    <div className="font-medium text-slate-800 break-words">商品：{item.productName}</div>
+                    <div className="text-slate-500 mt-0.5">
+                      数量：{item.quantity} · 单价：￥{item.unitPrice} · 金额：￥{item.totalAmount}
                     </div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {item.quantity} x ￥{item.unitPrice}
-                      {item.hasMathDiscrepancy && <span className="ml-2 text-amber-500 font-medium">⚠️ 金额校验异常</span>}
+                    {item.hasMathDiscrepancy && (
+                      <div className="text-amber-600 mt-1">⚠️ 金额校验异常</div>
+                    )}
+                    <div className={`${item.status === 'auto' ? 'text-emerald-700' : 'text-amber-700'} mt-1`}>
+                      {item.status === 'auto' ? '自动入账' : '待人工复核'}：{item.reason}
                     </div>
-                    <div className="mt-2 text-[10px] text-slate-500 flex flex-wrap items-center gap-2">
-                      <span className={item.status === 'auto' ? 'text-emerald-600 font-medium' : 'text-amber-600 font-medium'}>
-                        {item.status === 'auto' ? '自动匹配' : '待人工复核'}
+                    {item.bestCandidate && (
+                      <div className="text-slate-500 break-words">匹配商品：{item.bestCandidate.productName}（匹配度 {(item.bestCandidate.score * 100).toFixed(1)}%）</div>
+                    )}
+                    <div className="mt-1">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${item.status === 'auto' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {item.status === 'auto' ? '自动入账' : '待人工复核'}
                       </span>
-                      <span>{item.reason}</span>
-                      {item.bestCandidate && <span>候选：{item.bestCandidate.productName}（{(item.bestCandidate.score * 100).toFixed(1)}%）</span>}
                     </div>
                   </div>
                 ))}
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2">
-                <button
-                  onClick={exitPendingPreview}
-                  disabled={applyingAuto}
-                  className="w-full py-3 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold disabled:opacity-50"
-                >
-                  退出预览
-                </button>
-                <button
-                  onClick={applyAutoMatchedSales}
-                  disabled={applyingAuto}
-                  className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {applyingAuto ? <Loader2 className="animate-spin" /> : <Save size={18} />} {applyingAuto ? '执行中...' : '确认执行自动入账'}
-                </button>
-              </div>
             </div>
           ) : report ? (
             <div className="space-y-3">
-              <div className="flex justify-between text-sm font-medium border-b pb-2">
-                <span>识别日期: {report.saleDate || '未检测到'}</span>
-                <span>自动 {report.autoMatchedItems}，人工 {report.manualMatchedItems}，待复核 {report.reviewItems.length}</span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="bg-slate-50 rounded-lg p-3 text-center">
+                  <p className="text-[11px] text-slate-500">识别日期</p>
+                  <p className="font-bold text-slate-800 truncate">{report.saleDate || '未检测到'}</p>
+                </div>
+                <div className="bg-emerald-50 rounded-lg p-3 text-center">
+                  <p className="text-[11px] text-emerald-600">自动匹配</p>
+                  <p className="font-bold text-emerald-700">{report.autoMatchedItems}</p>
+                </div>
+                <div className="bg-blue-50 rounded-lg p-3 text-center">
+                  <p className="text-[11px] text-blue-600">人工确认</p>
+                  <p className="font-bold text-blue-700">{report.manualMatchedItems}</p>
+                </div>
+                <div className="bg-amber-50 rounded-lg p-3 text-center">
+                  <p className="text-[11px] text-amber-600">待人工复核</p>
+                  <p className="font-bold text-amber-700">{report.reviewItems.length}</p>
+                </div>
               </div>
 
               {report.reviewItems.length === 0 ? (
@@ -494,15 +532,22 @@ export function ReceiptScanner({ store }: { store: any }) {
                   所有项目已处理完成。
                 </div>
               ) : (
-                <>
-                  <div className="max-h-[380px] overflow-y-auto space-y-2">
+                <div className="border border-amber-100 bg-amber-50/60 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-2 gap-2 flex-col sm:flex-row">
+                    <div className="text-amber-700 text-sm font-bold">待人工复核 {report.reviewItems.length} 条</div>
+                    <button
+                      onClick={applySelectedManualSales}
+                      disabled={applyingManual || selectedManualCount === 0}
+                      className="w-full sm:w-auto px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {applyingManual ? '执行中...' : `执行已选复核项（${selectedManualCount}）`}
+                    </button>
+                  </div>
+                  <div className="max-h-[42dvh] sm:max-h-[380px] overflow-y-auto space-y-2 pr-0.5">
                     {report.reviewItems.map((item, idx) => (
-                      <div key={idx} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
-                        <div className="flex justify-between items-start gap-2">
-                          <span className="font-bold text-slate-800">{item.productName}</span>
-                          <span className="text-emerald-600 font-bold">￥{item.totalAmount}</span>
-                        </div>
-                        <div className="text-xs text-slate-500 mt-1">{item.quantity} x ￥{item.unitPrice}</div>
+                      <div key={idx} className="bg-white rounded-lg border border-amber-100 p-2.5 text-xs">
+                        <div className="font-medium text-slate-800 break-words">商品：{item.productName}</div>
+                        <div className="text-slate-500 mt-0.5">数量：{item.quantity} · 单价：￥{item.unitPrice} · 金额：￥{item.totalAmount}</div>
                         <div className="text-[11px] text-amber-600 mt-1">{item.reason}</div>
                         <div className="mt-2 text-[10px] text-slate-500">
                           {item.bestCandidate
@@ -512,7 +557,7 @@ export function ReceiptScanner({ store }: { store: any }) {
                         <select
                           value={manualSelections[idx] || ''}
                           onChange={(e) => setManualSelections((prev) => ({ ...prev, [idx]: e.target.value }))}
-                          className="mt-2 w-full px-2 py-2 border border-slate-200 rounded-lg text-sm"
+                          className="mt-2 w-full px-2.5 py-2.5 border border-slate-200 rounded-lg text-sm"
                         >
                           <option value="">请选择匹配商品</option>
                           {productIndex.map((product: any) => (
@@ -522,14 +567,7 @@ export function ReceiptScanner({ store }: { store: any }) {
                       </div>
                     ))}
                   </div>
-                  <button
-                    onClick={applySelectedManualSales}
-                    disabled={applyingManual || selectedManualCount === 0}
-                    className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {applyingManual ? <Loader2 className="animate-spin" /> : <Save size={18} />} {applyingManual ? '执行中...' : `执行已选复核项（${selectedManualCount}）`}
-                  </button>
-                </>
+                </div>
               )}
 
               <button
@@ -550,6 +588,36 @@ export function ReceiptScanner({ store }: { store: any }) {
           )}
         </div>
       </div>
+
+      {showMobileActions && (
+        <div className="sm:hidden border-t border-slate-100 bg-white/95 backdrop-blur-md p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          {pendingAnalysis ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={exitPendingPreview}
+                className="px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold"
+              >
+                退出预览
+              </button>
+              <button
+                onClick={applyAutoMatchedSales}
+                disabled={applyingAuto}
+                className="px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
+              >
+                {applyingAuto ? '执行中...' : '确认执行自动入账'}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={applySelectedManualSales}
+              disabled={applyingManual || selectedManualCount === 0}
+              className="w-full px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
+            >
+              {applyingManual ? '应用中...' : `应用已选择项(${selectedManualCount})`}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
