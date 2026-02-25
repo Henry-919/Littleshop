@@ -2,9 +2,10 @@ import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { useStore } from '../hooks/useStore';
 import { TrendingUp, Users, ShoppingBag, AlertTriangle, PackageSearch, Medal } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import * as XLSX from 'xlsx';
 
 export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
-  const { sales, products } = store;
+  const { sales, products, categories } = store;
 
   type PaymentInput = { card: string; cash: string; transfer: string };
 
@@ -47,44 +48,55 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
         };
       });
 
-    // 智能补货算法 (基于过去30天销量预测)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const restockList = products.map(product => {
-      const recentSales = sales.filter(sale => 
-        sale.productId === product.id && 
-        new Date(sale.date) >= thirtyDaysAgo
-      );
-      
-      const totalSoldLast30Days = recentSales.reduce((sum, sale) => sum + sale.quantity, 0);
-      const averageDailySales = totalSoldLast30Days / 30;
-      
-      if (averageDailySales === 0) return null;
-
-      const daysUntilEmpty = product.stock / averageDailySales;
-      
-      // 如果库存预计撑不到 7 天
-      if (daysUntilEmpty < 7) {
-        const targetStockFor14Days = Math.ceil(averageDailySales * 14);
-        const recommendedOrder = Math.max(0, targetStockFor14Days - product.stock);
-        
-        if (recommendedOrder > 0) {
-          return {
-            id: product.id,
-            name: product.name,
-            currentStock: product.stock,
-            averageDailySales: averageDailySales.toFixed(1),
-            daysRemaining: Math.floor(daysUntilEmpty),
-            recommendedOrder
-          };
-        }
-      }
-      return null;
-    }).filter(Boolean) as any[];
-
-    return { totalRevenue, totalOrders, topSalespeople, topProducts, restockList };
+    return { totalRevenue, totalOrders, topSalespeople, topProducts };
   }, [sales, products]);
+
+  const [lowStockList, setLowStockList] = useState<any[]>([]);
+  const [lowStockPage, setLowStockPage] = useState(1);
+  const [lowStockFilter, setLowStockFilter] = useState<'all' | 'soldout'>('all');
+  const pageSize = 5;
+
+  useEffect(() => {
+    const fetchLowStock = async () => {
+      const url = storeId ? `/api/analytics?storeId=${encodeURIComponent(storeId)}` : '/api/analytics';
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const list = Array.isArray(data?.lowStock) ? data.lowStock : [];
+        setLowStockList(list);
+        setLowStockPage(1);
+      } catch (error) {
+        console.error('Failed to load low stock list:', error);
+        setLowStockList([]);
+      }
+    };
+    fetchLowStock();
+  }, [storeId, products.length, sales.length]);
+
+  const filteredLowStockList = lowStockFilter === 'soldout'
+    ? lowStockList.filter((item: any) => Number(item.stock) === 0)
+    : lowStockList;
+
+  const totalLowStockPages = Math.max(1, Math.ceil(filteredLowStockList.length / pageSize));
+  const safeLowStockPage = Math.min(lowStockPage, totalLowStockPages);
+  const pagedLowStock = filteredLowStockList.slice((safeLowStockPage - 1) * pageSize, safeLowStockPage * pageSize);
+
+  const exportLowStockExcel = () => {
+    if (filteredLowStockList.length === 0) return;
+    const rows = filteredLowStockList.map((item: any) => ({
+      商品名称: item.name,
+      所属分类: item.category || categories.find((c: any) => c.id === item.category_id)?.name || '未分类',
+      当前库存: item.stock,
+      状态: item.stock === 0 ? '已售罄' : '库存紧张'
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, '补货预警清单');
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    XLSX.writeFile(wb, `补货预警清单_${stamp}.xlsx`);
+  };
 
   const monthlySales = useMemo(() => {
     const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -450,44 +462,96 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
             <AlertTriangle className="w-5 h-5 animate-pulse" />
             <h3 className="font-black">智能补货建议</h3>
           </div>
-          <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full uppercase tracking-tighter">AI 预测系统</span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 p-1 rounded-lg bg-white border border-slate-200">
+              <button
+                onClick={() => {
+                  setLowStockFilter('all');
+                  setLowStockPage(1);
+                }}
+                className={`px-2 py-1 rounded text-xs font-bold ${lowStockFilter === 'all' ? 'bg-rose-100 text-rose-600' : 'text-slate-600'}`}
+              >
+                全部
+              </button>
+              <button
+                onClick={() => {
+                  setLowStockFilter('soldout');
+                  setLowStockPage(1);
+                }}
+                className={`px-2 py-1 rounded text-xs font-bold ${lowStockFilter === 'soldout' ? 'bg-rose-100 text-rose-600' : 'text-slate-600'}`}
+              >
+                仅看已售罄
+              </button>
+            </div>
+            <button
+              onClick={exportLowStockExcel}
+              disabled={filteredLowStockList.length === 0}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-700 disabled:text-slate-300 disabled:bg-slate-50"
+            >
+              导出 Excel
+            </button>
+            <span className="text-[10px] font-bold bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full uppercase tracking-tighter">库存预警</span>
+          </div>
         </div>
         <div className="p-0">
-          {stats.restockList.length > 0 ? (
+          {filteredLowStockList.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 text-slate-400 text-[10px] uppercase font-bold tracking-widest">
-                    <th className="px-6 py-4">紧缺商品</th>
+                    <th className="px-6 py-4">商品名称</th>
+                    <th className="px-6 py-4">所属分类</th>
                     <th className="px-6 py-4 text-center">当前库存</th>
-                    <th className="px-6 py-4 text-center">预计可用</th>
-                    <th className="px-6 py-4 text-right">建议补货量 (14天)</th>
+                    <th className="px-6 py-4">状态</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {stats.restockList.map(item => (
+                  {pagedLowStock.map((item: any) => (
                     <tr key={item.id} className="hover:bg-rose-50/20 group transition-colors">
                       <td className="px-6 py-4">
                         <span className="font-bold text-slate-800">{item.name}</span>
-                        <div className="text-[10px] text-slate-400">日均销量: {item.averageDailySales} 件</div>
                       </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className="px-2 py-1 bg-slate-100 rounded-md font-mono font-bold text-slate-600">{item.currentStock}</span>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-black
-                          ${item.daysRemaining <= 2 ? 'bg-rose-100 text-rose-600 animate-bounce' : 'bg-orange-100 text-orange-600'}`}>
-                          约 {item.daysRemaining} 天
+                      <td className="px-6 py-4">
+                        <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded text-[11px]">
+                          {item.category || categories.find((c: any) => c.id === item.category_id)?.name || '未分类'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="text-emerald-600 font-black text-lg">+{item.recommendedOrder}</div>
-                        <div className="text-[10px] text-slate-300">件</div>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`font-mono font-bold ${item.stock === 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                          {item.stock}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${item.stock === 0 ? 'bg-rose-500 animate-pulse' : 'bg-amber-500'}`}></span>
+                          <span className={`font-medium ${item.stock === 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                            {item.stock === 0 ? '已售罄' : '库存紧张'}
+                          </span>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-xs text-slate-500">第 {safeLowStockPage}/{totalLowStockPages} 页 · 共 {filteredLowStockList.length} 项</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setLowStockPage(prev => Math.max(1, prev - 1))}
+                    disabled={safeLowStockPage <= 1}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 disabled:text-slate-300 disabled:bg-slate-50"
+                  >
+                    上一页
+                  </button>
+                  <button
+                    onClick={() => setLowStockPage(prev => Math.min(totalLowStockPages, prev + 1))}
+                    disabled={safeLowStockPage >= totalLowStockPages}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 disabled:text-slate-300 disabled:bg-slate-50"
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="p-12 text-center">

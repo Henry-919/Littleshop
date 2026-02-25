@@ -214,7 +214,11 @@ export function useStore(storeId?: string) {
     return !error;
   };
 
-  const processExcelImport = async (rows: any[], onProgress: (msg: string) => void) => {
+  const processExcelImport = async (
+    rows: any[],
+    onProgress: (msg: string) => void,
+    mode: 'increment' | 'overwrite' = 'increment'
+  ) => {
     if (!storeId) return 0;
 
     let successCount = 0;
@@ -223,11 +227,11 @@ export function useStore(storeId?: string) {
     // 导入前从数据库拉取最新数据，避免前端状态滞后造成重复插入
     const [catRes, prodRes] = await Promise.all([
       supabase.from('categories').select('id,name').eq('store_id', storeId).is('deleted_at', null),
-      supabase.from('products').select('id,name').eq('store_id', storeId).is('deleted_at', null)
+      supabase.from('products').select('id,name,stock').eq('store_id', storeId).is('deleted_at', null)
     ]);
 
     let currentCategories: Array<{ id: string; name: string }> = catRes.data || [];
-    let currentProducts: Array<{ id: string; name: string }> = prodRes.data || [];
+    let currentProducts: Array<{ id: string; name: string; stock: number }> = prodRes.data || [];
 
     for (const row of rows) {
       const name = String(row['商品名称'] || '').trim();
@@ -284,13 +288,14 @@ export function useStore(storeId?: string) {
       // 修改逻辑：如果存在则覆盖库存数量
       const existing = currentProducts.find(p => normalize(p.name) === normalize(name));
       if (existing) {
-        const updates: Partial<Product> = { stock, cost_price, category_id };
+        const targetStock = mode === 'increment' ? (Number(existing.stock) || 0) + stock : stock;
+        const updates: Partial<Product> = { stock: targetStock, cost_price, category_id };
         if (price !== null) {
           updates.price = price;
         }
         const updated = await updateProduct(existing.id, updates);
         if (updated) {
-          currentProducts = currentProducts.map(p => p.id === existing.id ? { ...p } : p);
+          currentProducts = currentProducts.map(p => p.id === existing.id ? { ...p, stock: targetStock } : p);
         }
       } else {
         const finalPrice = price ?? cost_price;
@@ -310,13 +315,20 @@ export function useStore(storeId?: string) {
 
           const duplicated = duplicatedList && duplicatedList[0];
           if (duplicated?.id) {
-            const updates: Partial<Product> = { stock, cost_price, category_id };
+            const duplicatedCurrent = currentProducts.find(p => p.id === duplicated.id);
+            const targetStock = mode === 'increment'
+              ? (Number(duplicatedCurrent?.stock) || 0) + stock
+              : stock;
+
+            const updates: Partial<Product> = { stock: targetStock, cost_price, category_id };
             if (price !== null) {
               updates.price = price;
             }
             await updateProduct(duplicated.id, updates);
             if (!currentProducts.some(p => p.id === duplicated.id)) {
-              currentProducts.push(duplicated);
+              currentProducts.push({ ...duplicated, stock: targetStock });
+            } else {
+              currentProducts = currentProducts.map(p => p.id === duplicated.id ? { ...p, stock: targetStock } : p);
             }
           }
         }

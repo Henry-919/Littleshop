@@ -146,60 +146,6 @@ export function Analytics({ storeId }: { storeId?: string }) {
         </div>
       </div>
 
-      {/* 补货建议表格 */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b border-slate-100">
-          <h3 className="text-lg font-bold text-slate-900">补货预警清单</h3>
-          <p className="text-sm text-slate-500 mt-1">系统根据当前库存自动筛选出的紧缺商品。</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-wider">
-                <th className="px-6 py-4 font-semibold">商品名称</th>
-                <th className="px-6 py-4 font-semibold">所属分类</th>
-                <th className="px-6 py-4 font-semibold">当前库存</th>
-                <th className="px-6 py-4 font-semibold">状态</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {data.lowStock.map(item => (
-                <tr key={item.id} className="border-b border-slate-50 hover:bg-slate-50/30 transition-colors">
-                  <td className="px-6 py-4 font-bold text-slate-700">{item.name}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded text-[11px]">
-                      {item.category || '未分类'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`font-mono font-bold ${item.stock === 0 ? 'text-rose-600' : 'text-amber-600'}`}>
-                      {item.stock}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${item.stock === 0 ? 'bg-rose-500 animate-pulse' : 'bg-amber-500'}`}></span>
-                      <span className={`font-medium ${item.stock === 0 ? 'text-rose-600' : 'text-amber-600'}`}>
-                        {item.stock === 0 ? '已售罄' : '库存紧张'}
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {data.lowStock.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center">
-                    <div className="flex flex-col items-center gap-2 text-slate-400">
-                      <PackageSearch className="w-10 h-10 opacity-20" />
-                      <p>太棒了！目前没有商品处于低库存状态。</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   );
 }

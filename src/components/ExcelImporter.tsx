@@ -16,6 +16,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState('');
+  const [importMode, setImportMode] = useState<'increment' | 'overwrite'>('increment');
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -45,7 +46,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
         }
 
         setProgress('正在同步到数据库...');
-        const successCount = await processExcelImport(data, (msg: string) => setProgress(msg));
+        const successCount = await processExcelImport(data, (msg: string) => setProgress(msg), importMode);
         
         alert(`导入成功！共处理 ${successCount} 条数据。`);
         
@@ -73,7 +74,17 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
   };
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2 flex-wrap">
+      <select
+        value={importMode}
+        onChange={(e) => setImportMode(e.target.value as 'increment' | 'overwrite')}
+        disabled={importing}
+        className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs text-slate-600 bg-white"
+      >
+        <option value="increment">增量入库</option>
+        <option value="overwrite">覆盖库存</option>
+      </select>
+
       <input 
         type="file" 
         accept=".xlsx, .xls" 

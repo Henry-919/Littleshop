@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../hooks/useStore';
 import { supabase } from '../lib/supabase';
+import * as XLSX from 'xlsx';
 import { 
   Layers, Search, ScanLine, Plus, Edit2, Trash2, Check, RotateCcw, X, AlertTriangle 
 } from 'lucide-react';
@@ -30,6 +31,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   const [inboundEnd, setInboundEnd] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [dwellFilter, setDwellFilter] = useState<'all' | '0-7' | '8-30' | '30+'>('all');
+  const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'negative'>('all');
   const [showDeleted, setShowDeleted] = useState(false);
   const [deletedProducts, setDeletedProducts] = useState<any[]>([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
@@ -57,6 +59,31 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     setInboundEnd('');
     setCategoryFilter('all');
     setDwellFilter('all');
+    setStockStatusFilter('all');
+  };
+
+  const handleExportNegativeStock = () => {
+    const negativeProducts = products.filter((p: any) => Number(p.stock) < 0);
+    if (negativeProducts.length === 0) {
+      alert('当前没有负库存商品');
+      return;
+    }
+
+    const rows = negativeProducts.map((item: any) => ({
+      商品名称: item.name,
+      分类: getCategoryName(item.category_id),
+      当前库存: item.stock,
+      成本价: item.cost_price ?? '',
+      入库时间: formatInboundDate(item.time),
+      滞留时间: formatDwellDays(item.time)
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, '负库存清单');
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    XLSX.writeFile(wb, `负库存清单_${stamp}.xlsx`);
   };
 
   const isTimeOnly = (value: string) => /^\d{2}:\d{2}(:\d{2})?$/.test(value);
@@ -127,9 +154,14 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
         return dwellDays > 30;
       })();
 
-      return matchesSearch && matchesCategory && matchesTime && matchesDwell;
+      const matchesStockStatus = (() => {
+        if (stockStatusFilter === 'all') return true;
+        return Number(p.stock) < 0;
+      })();
+
+      return matchesSearch && matchesCategory && matchesTime && matchesDwell && matchesStockStatus;
     });
-  }, [products, searchTerm, categoryFilter, inboundStart, inboundEnd, dwellFilter]);
+  }, [products, searchTerm, categoryFilter, inboundStart, inboundEnd, dwellFilter, stockStatusFilter]);
 
   // 行内编辑逻辑
   const startEditing = (p: any) => {
@@ -368,6 +400,22 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           >
             清空筛选
           </button>
+
+          <select
+            value={stockStatusFilter}
+            onChange={(e) => setStockStatusFilter(e.target.value as 'all' | 'negative')}
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <option value="all">库存状态：全部</option>
+            <option value="negative">库存状态：负库存</option>
+          </select>
+
+          <button
+            onClick={handleExportNegativeStock}
+            className="w-full px-3 py-2.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-rose-100 shadow-sm text-sm"
+          >
+            导出负库存
+          </button>
         </div>
       </div>
 
@@ -383,7 +431,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           </div>
         ) : (
           filteredProducts.map(product => (
-            <div key={product.id} className="bg-white rounded-2xl border border-slate-100 p-4 space-y-3 shadow-sm">
+            <div key={product.id} className={`rounded-2xl p-4 space-y-3 shadow-sm border ${Number(product.stock) < 0 ? 'bg-rose-50/40 border-rose-200' : 'bg-white border-slate-100'}`}>
               <div className="flex items-start justify-between gap-3">
                 {editingId === product.id ? (
                   <div className="flex-1 flex items-center gap-2">
@@ -427,7 +475,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                       className="mt-1 w-full px-2 py-1 border border-slate-200 rounded-lg text-center font-mono font-bold text-slate-700"
                     />
                   ) : (
-                    <p className="font-mono font-bold text-slate-700 mt-1">{product.stock}</p>
+                    <p className={`font-mono font-bold mt-1 ${Number(product.stock) < 0 ? 'text-rose-600' : 'text-slate-700'}`}>{product.stock}</p>
                   )}
                 </div>
                 <div className="bg-slate-50 rounded-lg p-2 text-center">
@@ -505,7 +553,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredProducts.map(product => (
-                <tr key={product.id} className="hover:bg-slate-50/50 transition-colors group">
+                <tr key={product.id} className={`transition-colors group ${Number(product.stock) < 0 ? 'bg-rose-50/30 hover:bg-rose-50/60' : 'hover:bg-slate-50/50'}`}>
                   <td className="px-6 py-4">
                     {editingId === product.id ? (
                       <div className="flex items-center gap-2">
@@ -562,7 +610,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                         />
                       </div>
                     ) : (
-                      <span className="font-mono font-bold text-slate-700">{product.stock}</span>
+                      <span className={`font-mono font-bold ${Number(product.stock) < 0 ? 'text-rose-600' : 'text-slate-700'}`}>{product.stock}</span>
                     )}
                   </td>
                   <td className="px-6 py-4 text-center">

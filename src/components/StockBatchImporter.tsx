@@ -265,6 +265,10 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
     return withIndex;
   }, [report, reviewFilter, manualSelections]);
 
+  const selectedManualCount = useMemo(() => {
+    return Object.values(manualSelections).filter(Boolean).length;
+  }, [manualSelections]);
+
   const onPickFile = () => fileInputRef.current?.click();
   const onPickImages = () => imageInputRef.current?.click();
 
@@ -594,7 +598,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
 
       {open && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[120] flex items-center justify-center p-2 sm:p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl border border-slate-100 overflow-hidden max-h-[92vh] flex flex-col">
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-3xl border border-slate-100 overflow-hidden h-[96dvh] sm:max-h-[92vh] flex flex-col">
             <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-100 flex items-start justify-between gap-3 sticky top-0 bg-white z-10">
               <div className="min-w-0">
                 <h3 className="text-base sm:text-lg font-bold text-slate-900">批量补库存（智能匹配）</h3>
@@ -608,7 +612,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
               </button>
             </div>
 
-            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto">
+            <div className="p-3 sm:p-6 space-y-4 overflow-y-auto">
               <div className="flex flex-col sm:flex-row gap-2 sm:items-center sticky top-0 sm:top-auto bg-white/95 backdrop-blur-sm z-[5] pb-1">
                 <button
                   onClick={onPickFile}
@@ -683,6 +687,11 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                             匹配商品：{item.bestCandidate.productName}（匹配度 {(item.bestCandidate.score * 100).toFixed(1)}%）
                           </div>
                         )}
+                            <div className="mt-1">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${item.status === 'auto' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {item.status === 'auto' ? '自动入库' : '待人工复核'}
+                              </span>
+                            </div>
                       </div>
                     ))}
                   </div>
@@ -803,6 +812,44 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                 </div>
               )}
             </div>
+
+            {(pendingAnalysis || (report && report.unmatched.length > 0)) && (
+              <div className="sm:hidden border-t border-slate-100 bg-white/95 backdrop-blur-md p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                {pendingAnalysis ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => exportReviewList(pendingAnalysis.unmatched, '复核清单_预览')}
+                      className="flex-1 px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold"
+                    >
+                      导出复核清单
+                    </button>
+                    <button
+                      onClick={applyAutoMatchedRows}
+                      disabled={applyingAuto}
+                      className="flex-1 px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
+                    >
+                      {applyingAuto ? '执行中...' : '确认执行'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => report && exportReviewList(report.unmatched, '复核清单_人工复核', manualSelections, productIndex)}
+                      className="flex-1 px-3 py-2 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-bold"
+                    >
+                      导出复核清单
+                    </button>
+                    <button
+                      onClick={applySelectedManualMatches}
+                      disabled={applyingManual || selectedManualCount === 0}
+                      className="flex-1 px-3 py-2 rounded-lg bg-slate-900 text-white text-xs font-bold disabled:opacity-50"
+                    >
+                      {applyingManual ? '应用中...' : `应用已选(${selectedManualCount})`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
