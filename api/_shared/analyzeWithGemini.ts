@@ -31,13 +31,29 @@ function extractBase64Data(input: string) {
   if (!raw) return '';
 
   const dataUrlMatch = raw.match(/^data:.*?;base64,(.+)$/i);
-  const payload = (dataUrlMatch ? dataUrlMatch[1] : raw).replace(/\s+/g, '');
+  let payload = dataUrlMatch ? dataUrlMatch[1] : raw;
+
+  try {
+    payload = decodeURIComponent(payload);
+  } catch {
+    // keep original payload
+  }
+
+  payload = payload.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
   if (!payload) return '';
 
-  if (!/^[A-Za-z0-9+/=]+$/.test(payload)) {
+  const remainder = payload.length % 4;
+  if (remainder === 2) payload += '==';
+  else if (remainder === 3) payload += '=';
+  else if (remainder === 1) return '';
+
+  try {
+    const decoded = Buffer.from(payload, 'base64');
+    if (!decoded || decoded.length === 0) return '';
+    return decoded.toString('base64');
+  } catch {
     return '';
   }
-  return payload;
 }
 
 export function setCors(res: any) {

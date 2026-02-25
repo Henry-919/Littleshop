@@ -1,0 +1,15 @@
+﻿{
+    "ok":  true,
+    "status":  200,
+    "body":  {
+                 "items":  [
+                               {
+                                   "productName":  "41901-2",
+                                   "unitPrice":  4,
+                                   "quantity":  1,
+                                   "totalAmount":  4
+                               }
+                           ],
+                 "saleDate":  "2026-02-20"
+             }
+}

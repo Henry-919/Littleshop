@@ -105,13 +105,18 @@ const scoreNameSimilarity = (source: string, target: string) => {
 };
 
 // 2. 图片压缩工具函数：与批量补库存识别链路保持一致
-const compressImageDataUrl = (dataUrl: string): Promise<string> => {
+const compressImageDataUrl = (
+  dataUrl: string,
+  outputType: 'image/jpeg' | 'image/png' = 'image/jpeg',
+  options?: { maxWidth?: number; jpegQuality?: number }
+): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.src = dataUrl;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const MAX_WIDTH = 1400;
+      const MAX_WIDTH = options?.maxWidth || 1400;
+      const JPEG_QUALITY = typeof options?.jpegQuality === 'number' ? options.jpegQuality : 0.8;
       let width = img.width;
       let height = img.height;
 
@@ -126,7 +131,9 @@ const compressImageDataUrl = (dataUrl: string): Promise<string> => {
       if (!ctx) return reject(new Error("Canvas context failed"));
       
       ctx.drawImage(img, 0, 0, width, height);
-      const compressed = canvas.toDataURL('image/jpeg', 0.8);
+      const compressed = outputType === 'image/png'
+        ? canvas.toDataURL('image/png')
+        : canvas.toDataURL('image/jpeg', JPEG_QUALITY);
       resolve(compressed);
     };
     img.onerror = () => reject(new Error("图片加载失败"));
@@ -322,18 +329,73 @@ export function ReceiptScanner({ store }: { store: any }) {
       const failureMessages: string[] = [];
       const candidateProducts = Array.from(new Set((productIndex || []).map((item: any) => String(item?.name || '').trim()).filter(Boolean))).slice(0, 120);
 
+      const callAnalyzeApi = async (payloadDataUrl: string, strategyLabel: string) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 70000);
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64Data: payloadDataUrl, mimeType: payloadDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', candidateProducts }),
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+        const text = await response.text();
+        let payload: any = null;
+        try {
+          payload = text ? JSON.parse(text) : null;
+        } catch {
+          payload = null;
+        }
+        if (!response.ok) {
+          const snippet = text ? text.slice(0, 160) : '';
+          throw new Error(`[${strategyLabel}] ${payload?.error || `HTTP ${response.status}`} ${snippet}`.trim());
+        }
+        if (!payload) {
+          throw new Error(`[${strategyLabel}] 服务端返回了非 JSON 内容`);
+        }
+        return payload;
+      };
+
+      const isParseRelatedError = (error: any) => {
+        const msg = String(error?.message || error || '').toLowerCase();
+        return (
+          msg.includes('图片数据格式无效') ||
+          msg.includes('图片格式解析失败') ||
+          msg.includes('expected pattern') ||
+          msg.includes('invalid image') ||
+          msg.includes('invalid argument')
+        );
+      };
+
       for (const imageDataUrl of images) {
         try {
-          const compressed = await compressImageDataUrl(imageDataUrl);
-          const response = await fetch('/api/analyze', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64Data: compressed, mimeType: 'image/jpeg', candidateProducts })
-          });
+          const retryCandidates: Array<{ label: string; makeDataUrl: () => Promise<string> }> = [
+            { label: 'jpeg-standard', makeDataUrl: () => compressImageDataUrl(imageDataUrl, 'image/jpeg') },
+            { label: 'png-fallback', makeDataUrl: () => compressImageDataUrl(imageDataUrl, 'image/png') },
+            { label: 'raw-original', makeDataUrl: async () => imageDataUrl },
+            { label: 'jpeg-lowres', makeDataUrl: () => compressImageDataUrl(imageDataUrl, 'image/jpeg', { maxWidth: 960, jpegQuality: 0.65 }) }
+          ];
 
-          const payload = await response.json();
-          if (!response.ok) {
-            throw new Error(payload?.error || 'AI 解析失败');
+          let payload: any = null;
+          let lastRetryError: any = null;
+
+          for (let i = 0; i < retryCandidates.length; i++) {
+            try {
+              const candidate = retryCandidates[i];
+              const candidateDataUrl = await candidate.makeDataUrl();
+              payload = await callAnalyzeApi(candidateDataUrl, candidate.label);
+              lastRetryError = null;
+              break;
+            } catch (retryErr: any) {
+              lastRetryError = retryErr;
+              if (!isParseRelatedError(retryErr)) {
+                throw retryErr;
+              }
+            }
+          }
+
+          if (!payload && lastRetryError) {
+            throw lastRetryError;
           }
 
           if (payload?.saleDate) detectedDate = payload.saleDate;
@@ -505,7 +567,7 @@ export function ReceiptScanner({ store }: { store: any }) {
             onClick={() => fileInputRef.current?.click()}
             className="border-2 border-dashed border-slate-200 rounded-xl sm:rounded-2xl p-6 sm:p-8 text-center hover:bg-slate-50 cursor-pointer transition-all"
           >
-            <input type="file" ref={fileInputRef} hidden multiple onChange={handleImageUpload} accept="image/*" />
+            <input type="file" ref={fileInputRef} hidden multiple onChange={handleImageUpload} accept="image/*,.heic,.heif" />
             <Upload className="mx-auto w-10 h-10 text-slate-300 mb-2" />
             <span className="text-xs sm:text-sm text-slate-600">点击或拖拽上传发票</span>
           </div>
