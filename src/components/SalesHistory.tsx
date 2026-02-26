@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useStore } from '../hooks/useStore';
-import { Trash2, History, ReceiptText, User, X, Pencil, Check, XCircle } from 'lucide-react';
+import { Trash2, History, ReceiptText, User, X, Pencil, Check, XCircle, Search, Filter } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 type EditingState = {
@@ -19,6 +19,9 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   const [deletedLoading, setDeletedLoading] = useState(false);
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7d' | 'month'>('all');
+  const [salespersonFilter, setSalespersonFilter] = useState<string>('all');
 
   const getProductName = (id: string) => {
     return products.find(p => p.id === id)?.name || '未知商品';
@@ -71,6 +74,46 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
     const dateB = new Date(b.date || 0).getTime();
     return dateB - dateA;
   });
+
+  const salespersonOptions = useMemo(() => {
+    const names = Array.from(new Set(
+      sales
+        .map((sale) => String(sale.salesperson || '').trim())
+        .filter(Boolean)
+    ));
+    names.sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    return names;
+  }, [sales]);
+
+  const filteredSales = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const sevenDaysAgo = todayStart - 6 * 24 * 60 * 60 * 1000;
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+    return sortedSales.filter((sale) => {
+      const productName = getProductName(sale.productId);
+      const dateValue = sale.date ? new Date(sale.date).getTime() : 0;
+      const salespersonName = String(sale.salesperson || '').trim();
+
+      const matchesSearch = !term ||
+        productName.toLowerCase().includes(term) ||
+        salespersonName.toLowerCase().includes(term);
+
+      const matchesSalesperson = salespersonFilter === 'all' || salespersonName === salespersonFilter;
+
+      const matchesDate = (() => {
+        if (dateFilter === 'all') return true;
+        if (!dateValue || Number.isNaN(dateValue)) return false;
+        if (dateFilter === 'today') return dateValue >= todayStart;
+        if (dateFilter === '7d') return dateValue >= sevenDaysAgo;
+        return dateValue >= monthStart;
+      })();
+
+      return matchesSearch && matchesSalesperson && matchesDate;
+    });
+  }, [sortedSales, searchTerm, salespersonFilter, dateFilter]);
 
   const loadDeletedSales = async () => {
     if (!storeId) return;
@@ -390,14 +433,67 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
         </div>
       </div>
 
+      {/* 搜索与筛选 */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-3 sm:p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(260px,1.2fr)_minmax(160px,0.8fr)_minmax(180px,1fr)_auto] gap-2 sm:gap-3 items-stretch">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="搜索商品名或收银员"
+              className="w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="relative">
+            <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)}
+              className="w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="all">时间：全部</option>
+              <option value="today">时间：今天</option>
+              <option value="7d">时间：近7天</option>
+              <option value="month">时间：本月</option>
+            </select>
+          </div>
+
+          <select
+            value={salespersonFilter}
+            onChange={(e) => setSalespersonFilter(e.target.value)}
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <option value="all">收银员：全部</option>
+            {salespersonOptions.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+
+          <button
+            onClick={() => {
+              setSearchTerm('');
+              setDateFilter('all');
+              setSalespersonFilter('all');
+            }}
+            className="w-full lg:w-auto px-3 py-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold text-sm transition-all"
+          >
+            清空
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mt-2">当前显示 {filteredSales.length} / {sales.length} 条</p>
+      </div>
+
       {/* Mobile Card List */}
       <div className="sm:hidden space-y-2 px-0.5">
-        {sortedSales.map(sale => renderMobileCard(sale))}
-        {sales.length === 0 && (
+        {filteredSales.map(sale => renderMobileCard(sale))}
+        {filteredSales.length === 0 && (
           <div className="bg-white rounded-2xl border border-slate-100 py-16 flex flex-col items-center gap-2 text-slate-300">
             <History className="w-10 h-10 opacity-10" />
-            <p className="text-base font-medium">暂无销售流水</p>
-            <p className="text-xs">一旦开始销售，记录将显示在这里</p>
+            <p className="text-base font-medium">暂无匹配记录</p>
+            <p className="text-xs">请调整搜索词或筛选条件</p>
           </div>
         )}
       </div>
@@ -417,14 +513,14 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-50">
-              {sortedSales.map(sale => renderDesktopRow(sale))}
-              {sales.length === 0 && (
+              {filteredSales.map(sale => renderDesktopRow(sale))}
+              {filteredSales.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center gap-2 text-slate-300">
                       <History className="w-12 h-12 opacity-10" />
-                      <p className="text-lg font-medium">暂无销售流水</p>
-                      <p className="text-sm">一旦开始销售，记录将显示在这里</p>
+                      <p className="text-lg font-medium">暂无匹配记录</p>
+                      <p className="text-sm">请调整搜索词或筛选条件</p>
                     </div>
                   </td>
                 </tr>

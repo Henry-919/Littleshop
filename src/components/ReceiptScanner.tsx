@@ -660,7 +660,7 @@ export function ReceiptScanner({ store }: { store: any }) {
   const showMobileActions = !!pendingAnalysis || !!(report && report.reviewItems.length > 0);
 
   return (
-    <div className={`p-3 sm:p-4 max-w-4xl mx-auto space-y-3 sm:space-y-4 ${showMobileActions ? 'pb-24 sm:pb-0' : ''}`}>
+    <div className={`p-2 sm:p-4 max-w-4xl mx-auto space-y-3 sm:space-y-4 ${showMobileActions ? 'pb-24 sm:pb-0' : ''}`}>
       {/* 顶部控制栏 */}
       <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 sm:gap-4">
         <div className="min-w-0">
@@ -688,12 +688,12 @@ export function ReceiptScanner({ store }: { store: any }) {
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-xl sm:rounded-2xl shadow-sm border border-slate-100">
-        <div className="flex items-center justify-between gap-2 mb-3">
+      <div className="bg-white p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-sm border border-slate-100">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
           <h3 className="text-sm sm:text-base font-bold text-slate-900">识别历史（核对用）</h3>
           <button
             onClick={() => persistRecognitionHistory([])}
-            className="px-2.5 py-1.5 text-xs font-bold bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all"
+            className="w-full sm:w-auto px-2.5 py-2 text-xs font-bold bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all"
           >
             清空历史
           </button>
@@ -702,19 +702,19 @@ export function ReceiptScanner({ store }: { store: any }) {
         {recognitionHistory.length === 0 ? (
           <div className="text-xs text-slate-400">暂无识别历史，执行一次识别后会自动记录。</div>
         ) : (
-          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[42vh] sm:max-h-56 overflow-y-auto pr-1">
             {recognitionHistory.map((entry) => (
               <details key={entry.id} className="border border-slate-200 rounded-lg bg-slate-50/60">
-                <summary className="cursor-pointer list-none px-3 py-2.5 flex items-center justify-between gap-2 text-xs text-slate-700">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-800 truncate">
+                <summary className="cursor-pointer list-none px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 text-xs text-slate-700">
+                  <div className="min-w-0 w-full">
+                    <div className="font-semibold text-slate-800 break-words">
                       {entry.saleDate || '未识别日期'} · 共 {entry.totalItems} 条
                     </div>
-                    <div className="text-[11px] text-slate-500 truncate">
+                    <div className="text-[11px] text-slate-500 break-words">
                       {new Date(entry.createdAt).toLocaleString('zh-CN')}
                     </div>
                   </div>
-                  <div className="shrink-0 text-[11px] text-slate-500">
+                  <div className="w-full sm:w-auto shrink-0 text-[11px] text-slate-500">
                     自动 {entry.autoMatchedItems} / 待复核 {entry.reviewItems}
                   </div>
                 </summary>
@@ -722,7 +722,7 @@ export function ReceiptScanner({ store }: { store: any }) {
                   {entry.items.map((item, index) => (
                     <div key={`${entry.id}_${index}`} className="bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] text-slate-600">
                       <div className="font-medium text-slate-800 break-words">{item.productName}</div>
-                      <div>数量 {item.quantity} · 单价 ￥{item.unitPrice} · 金额 ￥{item.totalAmount}</div>
+                      <div className="mt-0.5">数量 {item.quantity} · 单价 ￥{item.unitPrice} · 金额 ￥{item.totalAmount}</div>
                       <div className={item.status === 'auto' ? 'text-emerald-600' : 'text-amber-600'}>
                         {item.status === 'auto' ? '自动匹配' : '待复核'}
                       </div>

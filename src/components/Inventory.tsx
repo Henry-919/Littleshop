@@ -894,10 +894,10 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
       {/* 店铺调货 Modal */}
       {isTransferOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900">店铺间调货</h3>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">店铺间调货</h3>
               <button
                 onClick={() => setIsTransferOpen(false)}
                 className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
@@ -905,13 +905,13 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-4 md:p-6 space-y-4">
+            <div className="p-4 sm:p-6 space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">调出商品（当前门店）</label>
                 <select
                   value={transferForm.productId}
                   onChange={(e) => setTransferForm(prev => ({ ...prev, productId: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                 >
                   <option value="">请选择商品</option>
                   {products.map((p) => (
@@ -925,7 +925,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 <select
                   value={transferForm.targetStoreId}
                   onChange={(e) => setTransferForm(prev => ({ ...prev, targetStoreId: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                 >
                   <option value="">请选择门店</option>
                   {transferStores.map((item) => (
@@ -941,24 +941,24 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                   min="1"
                   value={transferForm.quantity}
                   onChange={(e) => setTransferForm(prev => ({ ...prev, quantity: e.target.value }))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                   placeholder="请输入数量"
                 />
               </div>
 
               <p className="text-xs text-slate-400">调货只会变更两家门店库存，不会计入销售额和热销商品。</p>
             </div>
-            <div className="p-4 md:p-6 pt-0 flex items-center justify-end gap-3">
+            <div className="p-4 sm:p-6 pt-0 grid grid-cols-2 gap-3">
               <button
                 onClick={() => setIsTransferOpen(false)}
-                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all"
+                className="w-full px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all"
               >
                 取消
               </button>
               <button
                 onClick={handleTransferSubmit}
                 disabled={transferSubmitting}
-                className="px-4 py-2 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 disabled:bg-amber-300 transition-all"
+                className="w-full px-4 py-2.5 bg-amber-500 text-white rounded-xl font-bold text-sm hover:bg-amber-600 disabled:bg-amber-300 transition-all"
               >
                 {transferSubmitting ? '调货中...' : '确认调货'}
               </button>
@@ -969,15 +969,15 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
       {/* AI 扫描 Modal */}
       {isScanOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-50 rounded-3xl md:rounded-[2.5rem] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden relative flex flex-col border border-white/20">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-slate-50 rounded-t-2xl sm:rounded-3xl md:rounded-[2.5rem] shadow-2xl w-full sm:max-w-5xl max-h-[92vh] overflow-hidden relative flex flex-col border border-white/20">
             <button 
               onClick={() => { setIsScanOpen(false); fetchData?.(); }}
-              className="absolute top-4 right-4 md:top-6 md:right-6 p-2 bg-white text-slate-900 rounded-full shadow-lg z-[110] hover:scale-110 transition-transform"
+              className="absolute top-3 right-3 sm:top-4 sm:right-4 md:top-6 md:right-6 p-2 bg-white text-slate-900 rounded-full shadow-lg z-[110] hover:scale-110 transition-transform"
             >
-              <X className="w-6 h-6" />
+              <X className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
-            <div className="p-3 md:p-8 overflow-y-auto custom-scrollbar">
+            <div className="p-2 sm:p-3 md:p-8 overflow-y-auto custom-scrollbar">
                <ReceiptScanner store={store} />
             </div>
           </div>
@@ -1055,10 +1055,10 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
       {/* 调货记录 Modal */}
       {showTransferHistory && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden border border-slate-100 flex flex-col">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <h3 className="text-lg font-bold text-slate-900">调货记录（当前门店）</h3>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-4xl max-h-[90vh] overflow-hidden border border-slate-100 flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">调货记录（当前门店）</h3>
               <button
                 onClick={() => setShowTransferHistory(false)}
                 className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
@@ -1067,20 +1067,26 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto flex-1">
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-                <input
-                  type="date"
-                  value={transferHistoryStart}
-                  onChange={(e) => setTransferHistoryStart(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <input
-                  type="date"
-                  value={transferHistoryEnd}
-                  onChange={(e) => setTransferHistoryEnd(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-1">开始日期</label>
+                  <input
+                    type="date"
+                    value={transferHistoryStart}
+                    onChange={(e) => setTransferHistoryStart(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-1">结束日期</label>
+                  <input
+                    type="date"
+                    value={transferHistoryEnd}
+                    onChange={(e) => setTransferHistoryEnd(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
               </div>
 
               {transferHistoryLoading ? (
@@ -1088,7 +1094,20 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               ) : filteredTransferHistory.length === 0 ? (
                 <div className="text-slate-400 text-sm">暂无调货记录</div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                  <div className="sm:hidden space-y-2">
+                    {filteredTransferHistory.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs space-y-1.5">
+                        <div className="font-semibold text-slate-800 break-words">{item.product_name || '-'}</div>
+                        <div className="text-slate-600">数量：{item.quantity}</div>
+                        <div className="text-slate-600">调出：{storeNameMap[item.source_store_id] || item.source_store_id || '-'}</div>
+                        <div className="text-slate-600">调入：{storeNameMap[item.target_store_id] || item.target_store_id || '-'}</div>
+                        <div className="text-slate-500">{item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : '-'}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full text-left text-sm">
                     <thead>
                       <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
@@ -1112,6 +1131,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </div>
