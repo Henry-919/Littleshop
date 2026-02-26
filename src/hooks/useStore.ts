@@ -236,6 +236,156 @@ export function useStore(storeId?: string) {
     return !error;
   };
 
+  const transferStock = async (productId: string, targetStoreId: string, quantity: number) => {
+    if (!storeId) return { success: false, message: '请先选择源门店' };
+    if (!targetStoreId) return { success: false, message: '请选择目标门店' };
+    if (targetStoreId === storeId) return { success: false, message: '源门店和目标门店不能相同' };
+
+    const transferQty = Number(quantity);
+    if (!Number.isFinite(transferQty) || transferQty <= 0) {
+      return { success: false, message: '调货数量必须大于 0' };
+    }
+
+    const { data: sourceProduct, error: sourceError } = await supabase
+      .from('products')
+      .select('id,name,price,stock,cost_price,category_id,time')
+      .eq('id', productId)
+      .eq('store_id', storeId)
+      .is('deleted_at', null)
+      .single();
+
+    if (sourceError || !sourceProduct) {
+      return { success: false, message: '未找到源商品' };
+    }
+
+    const sourceStock = Number(sourceProduct.stock) || 0;
+    if (sourceStock < transferQty) {
+      return { success: false, message: `库存不足，当前仅剩 ${sourceStock}` };
+    }
+
+    let targetCategoryId: string | undefined;
+    if (sourceProduct.category_id) {
+      const { data: sourceCategory } = await supabase
+        .from('categories')
+        .select('name')
+        .eq('id', sourceProduct.category_id)
+        .eq('store_id', storeId)
+        .is('deleted_at', null)
+        .single();
+
+      const categoryName = sourceCategory?.name?.trim();
+      if (categoryName) {
+        const { data: targetCategoryList } = await supabase
+          .from('categories')
+          .select('id,name')
+          .eq('store_id', targetStoreId)
+          .ilike('name', categoryName)
+          .is('deleted_at', null)
+          .limit(1);
+
+        if (targetCategoryList?.[0]?.id) {
+          targetCategoryId = targetCategoryList[0].id;
+        } else {
+          const { data: createdCategory } = await supabase
+            .from('categories')
+            .insert([{ name: categoryName, store_id: targetStoreId }])
+            .select('id')
+            .single();
+
+          if (createdCategory?.id) {
+            targetCategoryId = createdCategory.id;
+          }
+        }
+      }
+    }
+
+    const { data: targetProductList } = await supabase
+      .from('products')
+      .select('id,stock,name')
+      .eq('store_id', targetStoreId)
+      .ilike('name', sourceProduct.name)
+      .is('deleted_at', null)
+      .limit(1);
+
+    const targetExisting = targetProductList?.[0];
+    let insertedTargetId: string | null = null;
+    let targetPrevStock = 0;
+
+    if (targetExisting) {
+      targetPrevStock = Number(targetExisting.stock) || 0;
+      const { error: updateTargetError } = await supabase
+        .from('products')
+        .update({ stock: targetPrevStock + transferQty })
+        .eq('id', targetExisting.id);
+
+      if (updateTargetError) {
+        return { success: false, message: '目标门店入库失败' };
+      }
+    } else {
+      const { data: insertedTarget, error: insertTargetError } = await supabase
+        .from('products')
+        .insert([{
+          name: sourceProduct.name,
+          price: Number(sourceProduct.price) || Number(sourceProduct.cost_price) || 0,
+          stock: transferQty,
+          cost_price: Number(sourceProduct.cost_price) || 0,
+          category_id: targetCategoryId,
+          time: new Date().toISOString(),
+          store_id: targetStoreId
+        }])
+        .select('id')
+        .single();
+
+      if (insertTargetError || !insertedTarget) {
+        return { success: false, message: '目标门店创建商品失败' };
+      }
+
+      insertedTargetId = insertedTarget.id;
+    }
+
+    const newSourceStock = sourceStock - transferQty;
+    const { error: updateSourceError } = await supabase
+      .from('products')
+      .update({ stock: newSourceStock })
+      .eq('id', sourceProduct.id)
+      .eq('store_id', storeId);
+
+    if (updateSourceError) {
+      if (targetExisting) {
+        await supabase
+          .from('products')
+          .update({ stock: targetPrevStock })
+          .eq('id', targetExisting.id);
+      }
+      if (insertedTargetId) {
+        await supabase
+          .from('products')
+          .update({ deleted_at: new Date().toISOString() })
+          .eq('id', insertedTargetId);
+      }
+      return { success: false, message: '源门店扣减失败，已回滚目标门店库存' };
+    }
+
+    const { error: transferLogError } = await supabase
+      .from('stock_transfers')
+      .insert([{
+        product_name: sourceProduct.name,
+        quantity: transferQty,
+        source_store_id: storeId,
+        target_store_id: targetStoreId,
+        source_product_id: sourceProduct.id,
+        target_product_id: targetExisting?.id || insertedTargetId,
+        created_at: new Date().toISOString()
+      }]);
+
+    setProducts(prev => prev.map(p => p.id === sourceProduct.id ? { ...p, stock: newSourceStock } : p));
+
+    if (transferLogError) {
+      return { success: true, message: '调货成功，但调货记录写入失败' };
+    }
+    return { success: true, message: '调货成功' };
+  };
+
   const updateSale = async (
     saleId: string,
     updates: { productId?: string; quantity?: number; totalAmount?: number; salesperson?: string; date?: string }
@@ -426,6 +576,7 @@ export function useStore(storeId?: string) {
   return { 
     products, sales, categories, loading, fetchData,
     addProduct, updateProduct, deleteProduct, addSale, processExcelImport,
-    addCategory, updateCategory, deleteCategory, deleteSale, updateSale
+    addCategory, updateCategory, deleteCategory, deleteSale, updateSale,
+    transferStock
   };
 }

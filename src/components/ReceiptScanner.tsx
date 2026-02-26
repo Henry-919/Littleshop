@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X } from 'lucide-react';
 import heic2any from 'heic2any';
 
@@ -43,6 +43,19 @@ type ReceiptReport = {
   manualMatchedItems: number;
   reviewItems: ReviewItem[];
 };
+
+type RecognitionHistoryEntry = {
+  id: string;
+  createdAt: string;
+  saleDate?: string;
+  totalItems: number;
+  autoMatchedItems: number;
+  reviewItems: number;
+  items: Array<{ productName: string; quantity: number; unitPrice: number; totalAmount: number; status: 'auto' | 'review' }>;
+};
+
+const RECOGNITION_HISTORY_KEY = 'receipt_recognition_history_v1';
+const RECOGNITION_HISTORY_LIMIT = 30;
 
 const AUTO_MATCH_SCORE = 0.88;
 const AMBIGUOUS_GAP = 0.08;
@@ -192,7 +205,30 @@ export function ReceiptScanner({ store }: { store: any }) {
   const [error, setError] = useState<string | null>(null);
   const [salesperson, setSalesperson] = useState('自动扫描');
   const [saleDateInput, setSaleDateInput] = useState('');
+  const [recognitionHistory, setRecognitionHistory] = useState<RecognitionHistoryEntry[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECOGNITION_HISTORY_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setRecognitionHistory(parsed.slice(0, RECOGNITION_HISTORY_LIMIT));
+      }
+    } catch {
+      setRecognitionHistory([]);
+    }
+  }, []);
+
+  const persistRecognitionHistory = (next: RecognitionHistoryEntry[]) => {
+    setRecognitionHistory(next);
+    try {
+      localStorage.setItem(RECOGNITION_HISTORY_KEY, JSON.stringify(next));
+    } catch {
+      // ignore storage write failures
+    }
+  };
 
   const productIndex = useMemo(() => {
     return (products || []).map((p: any) => ({ id: p.id, name: p.name }));
@@ -301,6 +337,14 @@ export function ReceiptScanner({ store }: { store: any }) {
     setEditablePrices(nextEditablePrices);
     setSaleDateInput(saleDate || '');
     setReport(null);
+
+    return {
+      saleDate,
+      totalItems: items.length,
+      autoMatchedItems: autoSales.length,
+      reviewItems: reviewItems.length,
+      previewItems
+    };
   };
 
   const applyEditedProductName = (index: number) => {
@@ -474,7 +518,26 @@ export function ReceiptScanner({ store }: { store: any }) {
         setError(`部分图片识别失败（${failedCount}/${images.length}），其余结果已生成预览`);
       }
 
-      buildMatchPreview(parsedItems, detectedDate || undefined);
+      const summary = buildMatchPreview(parsedItems, detectedDate || undefined);
+
+      const historyEntry: RecognitionHistoryEntry = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        createdAt: new Date().toISOString(),
+        saleDate: summary.saleDate,
+        totalItems: summary.totalItems,
+        autoMatchedItems: summary.autoMatchedItems,
+        reviewItems: summary.reviewItems,
+        items: summary.previewItems.map((item) => ({
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalAmount: item.totalAmount,
+          status: item.status
+        }))
+      };
+
+      const nextHistory = [historyEntry, ...recognitionHistory].slice(0, RECOGNITION_HISTORY_LIMIT);
+      persistRecognitionHistory(nextHistory);
     } catch (err: any) {
       console.error(err);
       const rawMessage = String(err?.message || err || '识别失败');
@@ -623,6 +686,53 @@ export function ReceiptScanner({ store }: { store: any }) {
             title="销售日期（可手动修正）"
           />
         </div>
+      </div>
+
+      <div className="bg-white p-4 rounded-xl sm:rounded-2xl shadow-sm border border-slate-100">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h3 className="text-sm sm:text-base font-bold text-slate-900">识别历史（核对用）</h3>
+          <button
+            onClick={() => persistRecognitionHistory([])}
+            className="px-2.5 py-1.5 text-xs font-bold bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all"
+          >
+            清空历史
+          </button>
+        </div>
+
+        {recognitionHistory.length === 0 ? (
+          <div className="text-xs text-slate-400">暂无识别历史，执行一次识别后会自动记录。</div>
+        ) : (
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+            {recognitionHistory.map((entry) => (
+              <details key={entry.id} className="border border-slate-200 rounded-lg bg-slate-50/60">
+                <summary className="cursor-pointer list-none px-3 py-2.5 flex items-center justify-between gap-2 text-xs text-slate-700">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-800 truncate">
+                      {entry.saleDate || '未识别日期'} · 共 {entry.totalItems} 条
+                    </div>
+                    <div className="text-[11px] text-slate-500 truncate">
+                      {new Date(entry.createdAt).toLocaleString('zh-CN')}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-[11px] text-slate-500">
+                    自动 {entry.autoMatchedItems} / 待复核 {entry.reviewItems}
+                  </div>
+                </summary>
+                <div className="px-3 pb-3 space-y-1.5">
+                  {entry.items.map((item, index) => (
+                    <div key={`${entry.id}_${index}`} className="bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] text-slate-600">
+                      <div className="font-medium text-slate-800 break-words">{item.productName}</div>
+                      <div>数量 {item.quantity} · 单价 ￥{item.unitPrice} · 金额 ￥{item.totalAmount}</div>
+                      <div className={item.status === 'auto' ? 'text-emerald-600' : 'text-amber-600'}>
+                        {item.status === 'auto' ? '自动匹配' : '待复核'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">

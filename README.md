@@ -18,3 +18,7 @@ View your app in AI Studio: https://ai.studio/apps/3a8c77bc-3883-4def-a410-96286
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Supabase setup for transfer history
+
+If you enable store-to-store transfer history, run SQL in [templates/stock_transfers.sql](templates/stock_transfers.sql) in your Supabase SQL Editor first.
