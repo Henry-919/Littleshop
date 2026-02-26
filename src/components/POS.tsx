@@ -59,8 +59,10 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
 
       if (!finalProductId) throw new Error("无法获取商品ID");
 
-      // 执行售卖记录录入
-      const success = await addSale(finalProductId, quantity, salesperson);
+      // 执行售卖记录录入，使用手动输入的单价计算总金额
+      const salePrice = parseFloat(manualPrice);
+      const overrideTotal = salePrice > 0 ? salePrice * quantity : undefined;
+      const success = await addSale(finalProductId, quantity, salesperson, undefined, overrideTotal);
       
       if (success) {
         alert(isNewProduct ? `已创建新商品 "${searchTerm}" 并完成售卖！` : '销售记录已成功添加！');
@@ -103,13 +105,14 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
-                // 如果匹配到已有商品，自动带出价格
+                // 如果匹配到已有商品，自动带出价格（可修改）
                 const found = products.find(p => p.name === e.target.value);
                 if (found) {
                   setSelectedProductId(found.id);
                   setManualPrice(found.price.toString());
                 } else {
                   setSelectedProductId('');
+                  setManualPrice('');
                 }
               }}
               placeholder="输入名称搜索或直接输入新商品名..."
@@ -134,10 +137,9 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
               <input
                 type="number"
                 step="0.01"
-                value={matchedProduct ? matchedProduct.price : manualPrice}
+                value={manualPrice}
                 onChange={(e) => setManualPrice(e.target.value)}
-                readOnly={!!matchedProduct}
-                className={`w-full p-3 border rounded-xl outline-none ${matchedProduct ? 'bg-slate-50 text-slate-500' : 'border-slate-200 focus:ring-2 focus:ring-emerald-500'}`}
+                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
                 placeholder="0.00"
                 required
               />
