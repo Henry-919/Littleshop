@@ -1,13 +1,106 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useStore } from '../hooks/useStore';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
+import heic2any from 'heic2any';
 import { 
-  Layers, Search, ScanLine, Plus, Edit2, Trash2, Check, RotateCcw, X, AlertTriangle, ArrowRightLeft 
+  Layers, Search, ScanLine, Plus, Edit2, Trash2, Check, RotateCcw, X, AlertTriangle, ArrowRightLeft, ImageUp, Loader2
 } from 'lucide-react';
 import { ExcelImporter } from './ExcelImporter';
 import { ReceiptScanner } from './ReceiptScanner';
 import { StockBatchImporter } from './StockBatchImporter';
+
+const normalizeModel = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[\s_\-./\\()[\]{}]+/g, '')
+    .replace(/[^\u4e00-\u9fa5a-z0-9]/g, '');
+
+const levenshteinDistance = (a: string, b: string): number => {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const matrix: number[][] = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+  for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return matrix[a.length][b.length];
+};
+
+const scoreModelSimilarity = (source: string, target: string) => {
+  const sourceNormalized = normalizeModel(source);
+  const targetNormalized = normalizeModel(target);
+  if (!sourceNormalized || !targetNormalized) return 0;
+  if (sourceNormalized === targetNormalized) return 1;
+  if (sourceNormalized.includes(targetNormalized) || targetNormalized.includes(sourceNormalized)) return 0.92;
+  const maxLen = Math.max(sourceNormalized.length, targetNormalized.length);
+  return maxLen === 0 ? 0 : Math.max(0, 1 - levenshteinDistance(sourceNormalized, targetNormalized) / maxLen);
+};
+
+const fileToDataUrl = (file: File | Blob) => {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (evt) => resolve(String(evt.target?.result || ''));
+    reader.onerror = () => reject(new Error('图片读取失败'));
+    reader.readAsDataURL(file);
+  });
+};
+
+const isHeicLike = (file: File) => {
+  const type = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  return type.includes('heic') || type.includes('heif') || /\.(heic|heif)$/.test(name);
+};
+
+const toJpegDataUrlIfNeeded = async (file: File) => {
+  if (!isHeicLike(file)) return fileToDataUrl(file);
+  const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+  const jpegBlob = Array.isArray(converted) ? converted[0] : converted;
+  if (!(jpegBlob instanceof Blob)) throw new Error('HEIC 转换失败');
+  return fileToDataUrl(jpegBlob);
+};
+
+const compressImageDataUrl = (
+  dataUrl: string,
+  outputType: 'image/jpeg' | 'image/png' = 'image/jpeg',
+  options?: { maxWidth?: number; jpegQuality?: number }
+) => {
+  return new Promise<string>((resolve, reject) => {
+    const img = new Image();
+    img.src = dataUrl;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const maxWidth = options?.maxWidth || 1400;
+      const jpegQuality = typeof options?.jpegQuality === 'number' ? options.jpegQuality : 0.82;
+      let { width, height } = img;
+      if (width > maxWidth) {
+        height = Math.round(height * (maxWidth / width));
+        width = maxWidth;
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('图片压缩失败'));
+      ctx.drawImage(img, 0, 0, width, height);
+      const output = outputType === 'image/png'
+        ? canvas.toDataURL('image/png')
+        : canvas.toDataURL('image/jpeg', jpegQuality);
+      resolve(output);
+    };
+    img.onerror = () => reject(new Error('图片压缩失败'));
+  });
+};
 
 export function Inventory({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   // 1. 防御性数据获取
@@ -38,6 +131,12 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [transferSubmitting, setTransferSubmitting] = useState(false);
   const [transferStores, setTransferStores] = useState<Array<{ id: string; name: string }>>([]);
+  const [transferMode, setTransferMode] = useState<'manual' | 'image'>('manual');
+  const [manualProductName, setManualProductName] = useState('');
+  const transferImageInputRef = useRef<HTMLInputElement>(null);
+  const [transferImageLoading, setTransferImageLoading] = useState(false);
+  const [transferImageError, setTransferImageError] = useState<string | null>(null);
+  const [transferImageRows, setTransferImageRows] = useState<Array<{ model: string; quantity: number; matchedProductId: string; score: number }>>([]);
   const [showTransferHistory, setShowTransferHistory] = useState(false);
   const [transferHistoryLoading, setTransferHistoryLoading] = useState(false);
   const [transferHistory, setTransferHistory] = useState<any[]>([]);
@@ -355,38 +454,175 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
   const handleOpenTransfer = () => {
     setTransferForm({ productId: '', targetStoreId: '', quantity: '1' });
+    setTransferMode('manual');
+    setManualProductName('');
+    setTransferImageError(null);
+    setTransferImageRows([]);
     setIsTransferOpen(true);
+  };
+
+  const resolveProductIdByModel = (model: string) => {
+    const text = String(model || '').trim();
+    if (!text) return { productId: '', score: 0 };
+    const ranked = products
+      .map((p: any) => ({ id: p.id, score: scoreModelSimilarity(text, String(p.name || '')) }))
+      .sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    if (!best || best.score < 0.7) return { productId: '', score: best?.score || 0 };
+    return { productId: best.id, score: best.score };
+  };
+
+  const handleTransferImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setTransferImageLoading(true);
+    setTransferImageError(null);
+    setTransferImageRows([]);
+    try {
+      const dataUrl = await toJpegDataUrlIfNeeded(file);
+      const payloadDataUrl = await compressImageDataUrl(dataUrl, 'image/jpeg', { maxWidth: 1400, jpegQuality: 0.82 });
+
+      const response = await fetch('/api/analyze-stock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base64Data: payloadDataUrl,
+          mimeType: payloadDataUrl.startsWith('data:image/png') ? 'image/png' : 'image/jpeg'
+        })
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload) {
+        throw new Error(payload?.error || `HTTP ${response.status}`);
+      }
+
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      const parsedRows = items
+        .map((item: any) => ({
+          model: String(item?.model || '').trim(),
+          quantity: Number(item?.quantity || 0)
+        }))
+        .filter((item: any) => item.model && Number.isFinite(item.quantity) && item.quantity > 0)
+        .map((item: any) => {
+          const matched = resolveProductIdByModel(item.model);
+          return {
+            ...item,
+            matchedProductId: matched.productId,
+            score: matched.score
+          };
+        });
+
+      if (!parsedRows.length) {
+        setTransferImageError('未识别到可用于调货的商品与数量');
+      }
+      setTransferImageRows(parsedRows);
+    } catch (error: any) {
+      const msg = String(error?.message || error || '识别失败');
+      setTransferImageError(msg);
+    } finally {
+      setTransferImageLoading(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   const handleTransferSubmit = async () => {
     if (!transferStock) return;
 
-    const quantity = Number(transferForm.quantity);
-    if (!transferForm.productId) {
-      alert('请选择调出商品');
-      return;
-    }
     if (!transferForm.targetStoreId) {
       alert('请选择目标门店');
       return;
     }
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      alert('调货数量必须大于 0');
+
+    if (transferMode === 'manual') {
+      const quantity = Number(transferForm.quantity);
+      const fallback = resolveProductIdByModel(manualProductName);
+      const productId = transferForm.productId || fallback.productId;
+
+      if (!productId) {
+        alert('请选择商品或手动输入可匹配的商品名称');
+        return;
+      }
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        alert('调货数量必须大于 0');
+        return;
+      }
+
+      setTransferSubmitting(true);
+      const result = await transferStock(productId, transferForm.targetStoreId, quantity);
+      setTransferSubmitting(false);
+
+      if (!result?.success) {
+        alert(result?.message || '调货失败，请稍后重试');
+        return;
+      }
+
+      alert(result?.message || '调货成功，已完成库存加减');
+      setIsTransferOpen(false);
+      await fetchData?.();
+      return;
+    }
+
+    if (!transferImageRows.length) {
+      alert('请先上传并识别调货图片');
+      return;
+    }
+
+    const executableRows = transferImageRows.filter((row) => row.matchedProductId && Number(row.quantity) > 0);
+    if (!executableRows.length) {
+      alert('识别结果暂无可执行项，请先匹配商品');
       return;
     }
 
     setTransferSubmitting(true);
-    const result = await transferStock(transferForm.productId, transferForm.targetStoreId, quantity);
+    let successCount = 0;
+    const failMessages: string[] = [];
+
+    for (const row of executableRows) {
+      const result = await transferStock(row.matchedProductId, transferForm.targetStoreId, row.quantity);
+      if (result?.success) {
+        successCount++;
+      } else {
+        failMessages.push(`${row.model}: ${result?.message || '失败'}`);
+      }
+    }
     setTransferSubmitting(false);
 
-    if (!result?.success) {
-      alert(result?.message || '调货失败，请稍后重试');
+    await fetchData?.();
+    if (failMessages.length === 0) {
+      alert(`图片调货完成，共成功 ${successCount} 条`);
+      setIsTransferOpen(false);
       return;
     }
 
-    alert(result?.message || '调货成功，已完成库存加减');
-    setIsTransferOpen(false);
-    await fetchData?.();
+    alert(`已成功 ${successCount} 条，失败 ${failMessages.length} 条\n${failMessages.slice(0, 3).join('\n')}`);
+  };
+
+  const exportTransferImageRows = () => {
+    if (!transferImageRows.length) {
+      alert('当前没有可导出的识别结果');
+      return;
+    }
+
+    const targetStoreName = transferStores.find(item => item.id === transferForm.targetStoreId)?.name || '';
+    const rows = transferImageRows.map((row) => {
+      const matchedProduct = products.find((p: any) => p.id === row.matchedProductId);
+      return {
+        目标门店: targetStoreName || transferForm.targetStoreId || '未选择',
+        识别型号: row.model,
+        数量: row.quantity,
+        匹配商品: matchedProduct?.name || '',
+        匹配度: `${(row.score * 100).toFixed(1)}%`,
+        状态: row.matchedProductId ? '可执行' : '待匹配'
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, '调货识别结果');
+
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+    XLSX.writeFile(wb, `调货识别结果_${stamp}.xlsx`);
   };
 
   const deletedTotalPages = Math.max(1, Math.ceil(deletedProducts.length / DELETED_PAGE_SIZE));
@@ -907,20 +1143,6 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
             </div>
             <div className="p-4 sm:p-6 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">调出商品（当前门店）</label>
-                <select
-                  value={transferForm.productId}
-                  onChange={(e) => setTransferForm(prev => ({ ...prev, productId: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                >
-                  <option value="">请选择商品</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}（库存: {p.stock}）</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">调入门店</label>
                 <select
                   value={transferForm.targetStoreId}
@@ -934,17 +1156,133 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">调货数量</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={transferForm.quantity}
-                  onChange={(e) => setTransferForm(prev => ({ ...prev, quantity: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                  placeholder="请输入数量"
-                />
+              <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
+                <button
+                  onClick={() => setTransferMode('manual')}
+                  className={`px-3 py-2 text-sm rounded-lg font-bold transition-all ${transferMode === 'manual' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
+                >
+                  手动输入
+                </button>
+                <button
+                  onClick={() => setTransferMode('image')}
+                  className={`px-3 py-2 text-sm rounded-lg font-bold transition-all ${transferMode === 'image' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}
+                >
+                  识别图片
+                </button>
               </div>
+
+              {transferMode === 'manual' ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">调出商品（可选择）</label>
+                    <select
+                      value={transferForm.productId}
+                      onChange={(e) => setTransferForm(prev => ({ ...prev, productId: e.target.value }))}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    >
+                      <option value="">请选择商品</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}（库存: {p.stock}）</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">或手动输入商品名</label>
+                    <input
+                      type="text"
+                      value={manualProductName}
+                      onChange={(e) => setManualProductName(e.target.value)}
+                      placeholder="例如：M-2504"
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">调货数量</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={transferForm.quantity}
+                      onChange={(e) => setTransferForm(prev => ({ ...prev, quantity: e.target.value }))}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                      placeholder="请输入数量"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <input
+                    ref={transferImageInputRef}
+                    type="file"
+                    accept="image/*,.heic,.heif"
+                    onChange={handleTransferImageUpload}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => transferImageInputRef.current?.click()}
+                    disabled={transferImageLoading}
+                    className="w-full px-4 py-3 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl font-bold transition-all border border-indigo-100 shadow-sm text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {transferImageLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageUp className="w-4 h-4" />}
+                    {transferImageLoading ? '识别中...' : '上传图片识别商品与数量'}
+                  </button>
+
+                  {transferImageRows.length > 0 && (
+                    <button
+                      onClick={exportTransferImageRows}
+                      className="w-full px-4 py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-bold transition-all border border-slate-200 shadow-sm text-sm"
+                    >
+                      导出识别结果
+                    </button>
+                  )}
+
+                  {transferImageError && (
+                    <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5">
+                      {transferImageError}
+                    </div>
+                  )}
+
+                  {transferImageRows.length > 0 && (
+                    <div className="space-y-2 max-h-[35vh] overflow-y-auto pr-1">
+                      {transferImageRows.map((row, idx) => (
+                        <div key={`${row.model}_${idx}`} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                          <div className="text-xs text-slate-500">识别型号：<span className="font-semibold text-slate-700">{row.model}</span></div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[11px] text-slate-500 mb-1">数量</label>
+                              <input
+                                type="number"
+                                min="1"
+                                value={row.quantity}
+                                onChange={(e) => {
+                                  const qty = Number(e.target.value);
+                                  setTransferImageRows(prev => prev.map((item, i) => i === idx ? { ...item, quantity: Number.isFinite(qty) && qty > 0 ? qty : 1 } : item));
+                                }}
+                                className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] text-slate-500 mb-1">匹配商品</label>
+                              <select
+                                value={row.matchedProductId}
+                                onChange={(e) => setTransferImageRows(prev => prev.map((item, i) => i === idx ? { ...item, matchedProductId: e.target.value } : item))}
+                                className="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                              >
+                                <option value="">请选择商品</option>
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.name}（库存: {p.stock}）</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <div className="text-[11px] text-slate-400">匹配度：{(row.score * 100).toFixed(1)}%</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
 
               <p className="text-xs text-slate-400">调货只会变更两家门店库存，不会计入销售额和热销商品。</p>
             </div>
@@ -1005,25 +1343,25 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               ) : (
                 <div className="space-y-4">
                   <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                        <th className="px-6 py-3">商品名称</th>
-                        <th className="px-6 py-3">删除时间</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {pagedDeletedProducts.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
-                          <td className="px-6 py-3 text-slate-500">
-                            {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
-                          </td>
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                          <th className="px-6 py-3">商品名称</th>
+                          <th className="px-6 py-3">删除时间</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {pagedDeletedProducts.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
+                            <td className="px-6 py-3 text-slate-500">
+                              {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
 
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-500">
