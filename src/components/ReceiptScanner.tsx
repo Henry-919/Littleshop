@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X } from 'lucide-react';
+import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X, Plus } from 'lucide-react';
 import heic2any from 'heic2any';
 
 type MatchCandidate = {
@@ -208,7 +208,9 @@ export function ReceiptScanner({ store }: { store: any }) {
   const [recognitionHistory, setRecognitionHistory] = useState<RecognitionHistoryEntry[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [addToInventoryFlags, setAddToInventoryFlags] = useState<Record<number, boolean>>({});
-  const [inventoryFormData, setInventoryFormData] = useState<Record<number, { name: string; costPrice: string; stock: string }>>({});
+  const [inventoryFormData, setInventoryFormData] = useState<Record<number, { name: string; costPrice: string; stock: string; sellingPrice: string }>>({});
+  const [showManualAdd, setShowManualAdd] = useState(false);
+  const [manualAddForm, setManualAddForm] = useState({ productName: '', unitPrice: '', quantity: '', totalAmount: '' });
 
   useEffect(() => {
     try {
@@ -567,6 +569,35 @@ export function ReceiptScanner({ store }: { store: any }) {
     setSaleDateInput('');
     setAddToInventoryFlags({});
     setInventoryFormData({});
+    setShowManualAdd(false);
+    setManualAddForm({ productName: '', unitPrice: '', quantity: '', totalAmount: '' });
+  };
+
+  const addManualItem = () => {
+    if (!pendingAnalysis) return;
+    const productName = manualAddForm.productName.trim();
+    const quantity = parseInt(manualAddForm.quantity, 10) || 0;
+    const unitPrice = parseFloat(manualAddForm.unitPrice) || 0;
+    let totalAmount = parseFloat(manualAddForm.totalAmount) || 0;
+    if (!totalAmount && quantity > 0 && unitPrice > 0) {
+      totalAmount = +(quantity * unitPrice).toFixed(3);
+    }
+
+    if (!productName) return;
+    if (quantity <= 0) return;
+
+    // Re-run buildMatchPreview with the new item appended
+    const existingItems: ParsedReceiptItem[] = pendingAnalysis.previewItems.map((item, idx) => ({
+      productName: editableProductNames[idx] ?? item.productName,
+      unitPrice: parseFloat(editablePrices[idx]?.unitPrice || '') || item.unitPrice,
+      quantity: item.quantity,
+      totalAmount: parseFloat(editablePrices[idx]?.totalAmount || '') || item.totalAmount
+    }));
+
+    existingItems.push({ productName, unitPrice, quantity, totalAmount });
+    buildMatchPreview(existingItems, pendingAnalysis.saleDate);
+    setManualAddForm({ productName: '', unitPrice: '', quantity: '', totalAmount: '' });
+    setShowManualAdd(false);
   };
 
   const applyAutoMatchedSales = async () => {
@@ -684,6 +715,7 @@ export function ReceiptScanner({ store }: { store: any }) {
     }
 
     const costPrice = parseFloat(formData?.costPrice || '0') || 0;
+    const sellingPrice = parseFloat(formData?.sellingPrice || '0') || 0;
     const stock = parseInt(formData?.stock || '0', 10) || 0;
 
     if (stock <= 0) {
@@ -697,7 +729,7 @@ export function ReceiptScanner({ store }: { store: any }) {
     try {
       const result = await addProduct({
         name,
-        price: costPrice,
+        price: sellingPrice > 0 ? sellingPrice : costPrice,
         stock,
         cost_price: costPrice,
       });
@@ -705,6 +737,20 @@ export function ReceiptScanner({ store }: { store: any }) {
       if (result?.error) {
         setError(`入库失败：${result.error.message || '未知错误'}`);
         return;
+      }
+
+      // 入库同时写入销售流水
+      const newProductId = result?.data?.id;
+      if (newProductId && stock > 0) {
+        const finalSaleDate = saleDateInput || report.saleDate;
+        const saleTotal = sellingPrice > 0 ? sellingPrice * stock : costPrice * stock;
+        await addSale(
+          newProductId,
+          stock,
+          salesperson,
+          finalSaleDate || undefined,
+          saleTotal > 0 ? saleTotal : undefined
+        );
       }
 
       await store.fetchData?.();
@@ -972,6 +1018,82 @@ export function ReceiptScanner({ store }: { store: any }) {
                   </div>
                 ))}
               </div>
+
+              {/* 手动补充遗漏商品 */}
+              <div className="mt-2">
+                {!showManualAdd ? (
+                  <button
+                    onClick={() => setShowManualAdd(true)}
+                    className="w-full py-2.5 rounded-lg bg-white border border-dashed border-sky-300 text-sky-700 text-xs font-bold hover:bg-sky-50 flex items-center justify-center gap-1.5 transition-all"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> 手动补充遗漏商品
+                  </button>
+                ) : (
+                  <div className="bg-white border border-sky-200 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-sky-800">补充遗漏商品</span>
+                      <button onClick={() => setShowManualAdd(false)} className="p-1 hover:bg-slate-100 rounded">
+                        <X className="w-3.5 h-3.5 text-slate-400" />
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={manualAddForm.productName}
+                      onChange={(e) => setManualAddForm(prev => ({ ...prev, productName: e.target.value }))}
+                      placeholder="商品名称 / 型号"
+                      className="w-full px-2.5 py-2 border border-slate-200 rounded-md text-xs"
+                    />
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[10px] text-slate-500">数量</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={manualAddForm.quantity}
+                          onChange={(e) => setManualAddForm(prev => ({ ...prev, quantity: e.target.value }))}
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-xs"
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500">单价</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={manualAddForm.unitPrice}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const parsed = parseFloat(val);
+                            const qty = parseInt(manualAddForm.quantity, 10) || 0;
+                            const autoTotal = Number.isFinite(parsed) && qty > 0 ? String(+(parsed * qty).toFixed(3)) : manualAddForm.totalAmount;
+                            setManualAddForm(prev => ({ ...prev, unitPrice: val, totalAmount: autoTotal }));
+                          }}
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-xs"
+                          placeholder="0.00"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-slate-500">金额</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={manualAddForm.totalAmount}
+                          onChange={(e) => setManualAddForm(prev => ({ ...prev, totalAmount: e.target.value }))}
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-md text-xs"
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={addManualItem}
+                      disabled={!manualAddForm.productName.trim() || !(parseInt(manualAddForm.quantity, 10) > 0)}
+                      className="w-full py-2 rounded-lg bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 disabled:opacity-40 flex items-center justify-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> 添加到预览列表
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           ) : report ? (
             <div className="space-y-3">
@@ -1038,7 +1160,8 @@ export function ReceiptScanner({ store }: { store: any }) {
                                   [idx]: {
                                     name: item.productName,
                                     costPrice: String(item.unitPrice || ''),
-                                    stock: String(item.quantity || '')
+                                    stock: String(item.quantity || ''),
+                                    sellingPrice: String(item.unitPrice || '')
                                   }
                                 }));
                               }
@@ -1068,7 +1191,7 @@ export function ReceiptScanner({ store }: { store: any }) {
                                 placeholder="输入产品名称"
                               />
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                               <div>
                                 <label className="text-[11px] text-slate-600 font-medium">成本价（￥）</label>
                                 <input
@@ -1077,7 +1200,21 @@ export function ReceiptScanner({ store }: { store: any }) {
                                   value={inventoryFormData[idx]?.costPrice ?? ''}
                                   onChange={(e) => setInventoryFormData(prev => ({
                                     ...prev,
-                                    [idx]: { ...(prev[idx] || { name: '', costPrice: '', stock: '' }), costPrice: e.target.value }
+                                    [idx]: { ...(prev[idx] || { name: '', costPrice: '', stock: '', sellingPrice: '' }), costPrice: e.target.value }
+                                  }))}
+                                  className="mt-0.5 w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm"
+                                  placeholder="0.00"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[11px] text-slate-600 font-medium">销售价（￥）</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={inventoryFormData[idx]?.sellingPrice ?? ''}
+                                  onChange={(e) => setInventoryFormData(prev => ({
+                                    ...prev,
+                                    [idx]: { ...(prev[idx] || { name: '', costPrice: '', stock: '', sellingPrice: '' }), sellingPrice: e.target.value }
                                   }))}
                                   className="mt-0.5 w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm"
                                   placeholder="0.00"
@@ -1091,7 +1228,7 @@ export function ReceiptScanner({ store }: { store: any }) {
                                   value={inventoryFormData[idx]?.stock ?? ''}
                                   onChange={(e) => setInventoryFormData(prev => ({
                                     ...prev,
-                                    [idx]: { ...(prev[idx] || { name: '', costPrice: '', stock: '' }), stock: e.target.value }
+                                    [idx]: { ...(prev[idx] || { name: '', costPrice: '', stock: '', sellingPrice: '' }), stock: e.target.value }
                                   }))}
                                   className="mt-0.5 w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm"
                                   placeholder="0"

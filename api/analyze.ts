@@ -374,6 +374,37 @@ async function geminiFallback(
   };
 }
 
+/* ── Merge & deduplicate items from two recognition paths ── */
+function mergeRecognitionResults(
+  primaryItems: Array<{ productName: string; unitPrice: number; quantity: number; totalAmount: number }>,
+  secondaryItems: Array<{ productName: string; unitPrice: number; quantity: number; totalAmount: number }>
+): Array<{ productName: string; unitPrice: number; quantity: number; totalAmount: number }> {
+  if (!secondaryItems.length) return primaryItems;
+  if (!primaryItems.length) return secondaryItems;
+
+  const merged = [...primaryItems];
+  const DEDUP_THRESHOLD = 0.72;
+
+  for (const secItem of secondaryItems) {
+    const isDuplicate = merged.some((priItem) => {
+      const nameSim = scoreNameSimilarity(secItem.productName, priItem.productName);
+      if (nameSim >= DEDUP_THRESHOLD) {
+        // Same product name — check if quantity also matches (likely same row)
+        if (secItem.quantity === priItem.quantity) return true;
+        // Name matches closely but different qty — could be different entries with similar names
+        if (nameSim >= 0.92) return true;
+      }
+      return false;
+    });
+
+    if (!isDuplicate) {
+      merged.push(secItem);
+    }
+  }
+
+  return merged;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -391,39 +422,96 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .slice(0, 120)
       : [];
 
-    /* ── Phase 1: Gemini OCR — extract raw text from image ── */
-    const ocrResult = await analyzeWithGemini({
-      base64Data,
-      mimeType,
-      prompt: OCR_PROMPT,
-      schema: ocrSchema,
-      temperature: 0.05,
-      models: ['gemini-2.0-flash', 'gemini-2.5-flash']
-    });
+    /* ── Dual-path parallel recognition to reduce missed items ── */
+    /* Path A: Gemini OCR → MiniMax M2.5 (primary) */
+    /* Path B: Gemini direct full analysis (secondary, runs in parallel) */
 
-    if (ocrResult.status !== 200 || !ocrResult.body?.text) {
-      console.warn('[api/analyze] Gemini OCR failed, falling back to Gemini full analysis');
-      const fb = await geminiFallback(base64Data, mimeType, candidates);
-      return res.status(fb.status).json(fb.body);
+    const pathA = (async (): Promise<{ items: any[]; saleDate?: string } | null> => {
+      try {
+        const ocrResult = await analyzeWithGemini({
+          base64Data,
+          mimeType,
+          prompt: OCR_PROMPT,
+          schema: ocrSchema,
+          temperature: 0.05,
+          models: ['gemini-2.0-flash', 'gemini-2.5-flash']
+        });
+
+        if (ocrResult.status !== 200 || !ocrResult.body?.text) {
+          console.warn('[Path A] Gemini OCR failed');
+          return null;
+        }
+
+        const parseResult = await parseWithMiniMax(ocrResult.body.text, candidates);
+        if (parseResult.status !== 200) {
+          console.warn('[Path A] MiniMax parsing failed:', parseResult.body?.error);
+          return null;
+        }
+
+        const body = parseResult.body || {};
+        return {
+          items: normalizeItems(body.items, candidates),
+          saleDate: normalizeInvoiceDate(body.saleDate)
+        };
+      } catch (err: any) {
+        console.warn('[Path A] error:', err?.message);
+        return null;
+      }
+    })();
+
+    const pathB = (async (): Promise<{ items: any[]; saleDate?: string } | null> => {
+      try {
+        const result = await analyzeWithGemini({
+          base64Data,
+          mimeType,
+          prompt: buildAnalyzePrompt(candidates),
+          schema: fullSchema,
+          temperature: 0.05,
+          models: ['gemini-2.5-flash', 'gemini-2.0-flash']
+        });
+        if (result.status !== 200) {
+          console.warn('[Path B] Gemini full analysis failed:', result.status);
+          return null;
+        }
+        const body = result.body || {};
+        return {
+          items: normalizeItems(body.items, candidates),
+          saleDate: normalizeInvoiceDate(body.saleDate)
+        };
+      } catch (err: any) {
+        console.warn('[Path B] error:', err?.message);
+        return null;
+      }
+    })();
+
+    const [resultA, resultB] = await Promise.all([pathA, pathB]);
+
+    /* ── Merge results ── */
+    const primaryItems = resultA?.items || [];
+    const secondaryItems = resultB?.items || [];
+    const mergedItems = mergeRecognitionResults(primaryItems, secondaryItems);
+    const finalDate = resultA?.saleDate || resultB?.saleDate;
+
+    if (mergedItems.length === 0) {
+      // Both paths failed entirely — return a meaningful error
+      if (!resultA && !resultB) {
+        return res.status(502).json({ error: 'ai_call_failed', details: '两条识别路径均失败，请重试' });
+      }
+      return res.status(200).json({ items: [], saleDate: finalDate, error: 'ai_timeout' });
     }
 
-    /* ── Phase 2: MiniMax M2.5 — structured parsing of OCR text ── */
-    const parseResult = await parseWithMiniMax(ocrResult.body.text, candidates);
-
-    if (parseResult.status !== 200) {
-      console.warn('[api/analyze] MiniMax failed, falling back to Gemini:', parseResult.body?.error);
-      const fb = await geminiFallback(base64Data, mimeType, candidates);
-      return res.status(fb.status).json(fb.body);
-    }
-
-    /* ── Post-processing ── */
-    const body = parseResult.body || {};
-    const normalizedItems = normalizeItems(body.items, candidates);
-    const normalizedDate = normalizeInvoiceDate(body.saleDate);
+    const supplementCount = mergedItems.length - primaryItems.length;
+    console.log(`[api/analyze] Path A: ${primaryItems.length} items, Path B: ${secondaryItems.length} items, merged: ${mergedItems.length} (supplemented +${supplementCount})`);
 
     return res.status(200).json({
-      items: normalizedItems,
-      saleDate: normalizedDate
+      items: mergedItems,
+      saleDate: finalDate,
+      _debug: {
+        pathA: primaryItems.length,
+        pathB: secondaryItems.length,
+        merged: mergedItems.length,
+        supplemented: supplementCount
+      }
     });
   } catch (error: any) {
     console.error('[api/analyze] error:', error);
