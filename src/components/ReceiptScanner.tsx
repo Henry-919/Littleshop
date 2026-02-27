@@ -192,7 +192,7 @@ const toJpegDataUrlIfNeeded = async (file: File) => {
 };
 
 export function ReceiptScanner({ store }: { store: any }) {
-  const { products, addSale } = store;
+  const { products, addSale, addProduct } = store;
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [applyingAuto, setApplyingAuto] = useState(false);
@@ -207,6 +207,8 @@ export function ReceiptScanner({ store }: { store: any }) {
   const [saleDateInput, setSaleDateInput] = useState('');
   const [recognitionHistory, setRecognitionHistory] = useState<RecognitionHistoryEntry[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [addToInventoryFlags, setAddToInventoryFlags] = useState<Record<number, boolean>>({});
+  const [inventoryFormData, setInventoryFormData] = useState<Record<number, { name: string; costPrice: string; stock: string }>>({});
 
   useEffect(() => {
     try {
@@ -235,8 +237,8 @@ export function ReceiptScanner({ store }: { store: any }) {
   }, [products]);
 
   const selectedManualCount = useMemo(() => {
-    return Object.values(manualSelections).filter(Boolean).length;
-  }, [manualSelections]);
+    return Object.entries(manualSelections).filter(([key, val]) => val && !addToInventoryFlags[Number(key)]).length;
+  }, [manualSelections, addToInventoryFlags]);
 
   // 图片上传处理
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -563,6 +565,8 @@ export function ReceiptScanner({ store }: { store: any }) {
     setEditableProductNames({});
     setEditablePrices({});
     setSaleDateInput('');
+    setAddToInventoryFlags({});
+    setInventoryFormData({});
   };
 
   const applyAutoMatchedSales = async () => {
@@ -612,7 +616,7 @@ export function ReceiptScanner({ store }: { store: any }) {
 
     const selectedIndexes = Object.keys(manualSelections)
       .map(Number)
-      .filter((index) => !!manualSelections[index]);
+      .filter((index) => !!manualSelections[index] && !addToInventoryFlags[index]);
 
     if (selectedIndexes.length === 0) {
       setError('请先为待复核项选择目标商品');
@@ -634,11 +638,21 @@ export function ReceiptScanner({ store }: { store: any }) {
       const selectedSet = new Set(selectedIndexes);
       const remainingReview = report.reviewItems.filter((_, index) => !selectedSet.has(index));
       const nextSelections: Record<number, string> = {};
-      remainingReview.forEach((item, index) => {
-        if (item.bestCandidate) nextSelections[index] = item.bestCandidate.productId;
+      const nextFlags: Record<number, boolean> = {};
+      const nextFormData: Record<number, { name: string; costPrice: string; stock: string }> = {};
+      let newIdx = 0;
+      report.reviewItems.forEach((_, oldIdx) => {
+        if (selectedSet.has(oldIdx)) return;
+        const ri = report.reviewItems[oldIdx];
+        if (ri.bestCandidate) nextSelections[newIdx] = ri.bestCandidate.productId;
+        if (addToInventoryFlags[oldIdx]) nextFlags[newIdx] = true;
+        if (inventoryFormData[oldIdx]) nextFormData[newIdx] = inventoryFormData[oldIdx];
+        newIdx++;
       });
 
       setManualSelections(nextSelections);
+      setAddToInventoryFlags(nextFlags);
+      setInventoryFormData(nextFormData);
       setReport((prev) => {
         if (!prev) return prev;
         return {
@@ -652,6 +666,75 @@ export function ReceiptScanner({ store }: { store: any }) {
       await store.fetchData?.();
     } catch (err: any) {
       setError(err?.message || '执行人工复核入账失败');
+    } finally {
+      setApplyingManual(false);
+    }
+  };
+
+  const addReviewItemToInventory = async (idx: number) => {
+    if (!report) return;
+    const item = report.reviewItems[idx];
+    if (!item) return;
+
+    const formData = inventoryFormData[idx];
+    const name = (formData?.name || item.productName).trim();
+    if (!name) {
+      setError('请输入产品名称');
+      return;
+    }
+
+    const costPrice = parseFloat(formData?.costPrice || '0') || 0;
+    const stock = parseInt(formData?.stock || '0', 10) || 0;
+
+    if (stock <= 0) {
+      setError('库存数量必须大于 0');
+      return;
+    }
+
+    setApplyingManual(true);
+    setError(null);
+
+    try {
+      const result = await addProduct({
+        name,
+        price: costPrice,
+        stock,
+        cost_price: costPrice,
+      });
+
+      if (result?.error) {
+        setError(`入库失败：${result.error.message || '未知错误'}`);
+        return;
+      }
+
+      await store.fetchData?.();
+
+      // Remove this item from review list and re-index states
+      const reindex = <T,>(oldMap: Record<number, T>): Record<number, T> => {
+        const newMap: Record<number, T> = {};
+        Object.entries(oldMap).forEach(([key, val]) => {
+          const k = Number(key);
+          if (k < idx) newMap[k] = val;
+          else if (k > idx) newMap[k - 1] = val;
+        });
+        return newMap;
+      };
+
+      setAddToInventoryFlags(reindex);
+      setInventoryFormData(reindex);
+      setManualSelections(reindex);
+
+      const remainingReview = report.reviewItems.filter((_, i) => i !== idx);
+      setReport((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          manualMatchedItems: prev.manualMatchedItems + 1,
+          reviewItems: remainingReview,
+        };
+      });
+    } catch (err: any) {
+      setError(err?.message || '入库失败');
     } finally {
       setApplyingManual(false);
     }
@@ -933,21 +1016,116 @@ export function ReceiptScanner({ store }: { store: any }) {
                         <div className="font-medium text-slate-800 break-words">商品：{item.productName}</div>
                         <div className="text-slate-500 mt-0.5">数量：{item.quantity} · 单价：￥{item.unitPrice} · 金额：￥{item.totalAmount}</div>
                         <div className="text-[11px] text-amber-600 mt-1">{item.reason}</div>
-                        <div className="mt-2 text-[10px] text-slate-500">
-                          {item.bestCandidate
-                            ? `最佳候选：${item.bestCandidate.productName}（${(item.bestCandidate.score * 100).toFixed(1)}%）`
-                            : '暂无候选，请手动选择'}
+
+                        {/* Toggle: match existing vs add to inventory */}
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            onClick={() => setAddToInventoryFlags(prev => ({ ...prev, [idx]: false }))}
+                            className={`flex-1 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                              !addToInventoryFlags[idx]
+                                ? 'bg-slate-900 text-white'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            匹配现有商品
+                          </button>
+                          <button
+                            onClick={() => {
+                              setAddToInventoryFlags(prev => ({ ...prev, [idx]: true }));
+                              if (!inventoryFormData[idx]) {
+                                setInventoryFormData(prev => ({
+                                  ...prev,
+                                  [idx]: {
+                                    name: item.productName,
+                                    costPrice: String(item.unitPrice || ''),
+                                    stock: String(item.quantity || '')
+                                  }
+                                }));
+                              }
+                            }}
+                            className={`flex-1 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all ${
+                              addToInventoryFlags[idx]
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            直接入库
+                          </button>
                         </div>
-                        <select
-                          value={manualSelections[idx] || ''}
-                          onChange={(e) => setManualSelections((prev) => ({ ...prev, [idx]: e.target.value }))}
-                          className="mt-2 w-full px-2.5 py-2.5 border border-slate-200 rounded-lg text-sm"
-                        >
-                          <option value="">请选择匹配商品</option>
-                          {productIndex.map((product: any) => (
-                            <option key={product.id} value={product.id}>{product.name}</option>
-                          ))}
-                        </select>
+
+                        {addToInventoryFlags[idx] ? (
+                          <div className="mt-2 space-y-2 border border-emerald-100 bg-emerald-50/40 rounded-lg p-2.5">
+                            <div>
+                              <label className="text-[11px] text-slate-600 font-medium">产品名称</label>
+                              <input
+                                type="text"
+                                value={inventoryFormData[idx]?.name ?? item.productName}
+                                onChange={(e) => setInventoryFormData(prev => ({
+                                  ...prev,
+                                  [idx]: { ...(prev[idx] || { name: '', costPrice: '', stock: '' }), name: e.target.value }
+                                }))}
+                                className="mt-0.5 w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm"
+                                placeholder="输入产品名称"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[11px] text-slate-600 font-medium">成本价（￥）</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={inventoryFormData[idx]?.costPrice ?? ''}
+                                  onChange={(e) => setInventoryFormData(prev => ({
+                                    ...prev,
+                                    [idx]: { ...(prev[idx] || { name: '', costPrice: '', stock: '' }), costPrice: e.target.value }
+                                  }))}
+                                  className="mt-0.5 w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm"
+                                  placeholder="0.00"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[11px] text-slate-600 font-medium">库存数量</label>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  value={inventoryFormData[idx]?.stock ?? ''}
+                                  onChange={(e) => setInventoryFormData(prev => ({
+                                    ...prev,
+                                    [idx]: { ...(prev[idx] || { name: '', costPrice: '', stock: '' }), stock: e.target.value }
+                                  }))}
+                                  className="mt-0.5 w-full px-2.5 py-2 border border-slate-200 rounded-md text-sm"
+                                  placeholder="0"
+                                />
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => addReviewItemToInventory(idx)}
+                              disabled={applyingManual}
+                              className="w-full py-2 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                            >
+                              {applyingManual ? <Loader2 className="animate-spin w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                              {applyingManual ? '入库中...' : '确认入库'}
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="mt-2 text-[10px] text-slate-500">
+                              {item.bestCandidate
+                                ? `最佳候选：${item.bestCandidate.productName}（${(item.bestCandidate.score * 100).toFixed(1)}%）`
+                                : '暂无候选，请手动选择'}
+                            </div>
+                            <select
+                              value={manualSelections[idx] || ''}
+                              onChange={(e) => setManualSelections((prev) => ({ ...prev, [idx]: e.target.value }))}
+                              className="mt-2 w-full px-2.5 py-2.5 border border-slate-200 rounded-lg text-sm"
+                            >
+                              <option value="">请选择匹配商品</option>
+                              {productIndex.map((product: any) => (
+                                <option key={product.id} value={product.id}>{product.name}</option>
+                              ))}
+                            </select>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -962,6 +1140,8 @@ export function ReceiptScanner({ store }: { store: any }) {
                   setEditablePrices({});
                   setSaleDateInput('');
                   setImages([]);
+                  setAddToInventoryFlags({});
+                  setInventoryFormData({});
                 }}
                 className="w-full py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold"
               >
