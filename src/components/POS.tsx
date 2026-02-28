@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../hooks/useStore';
-import { ShoppingBag, User, Plus, Search, CheckCircle2, Tag, Package, DollarSign } from 'lucide-react';
+import { ShoppingBag, User, Plus, Search, CheckCircle2, Tag, Package, DollarSign, CalendarDays } from 'lucide-react';
 
 export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   const { products, categories, addSale, addProduct } = store;
@@ -15,6 +15,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   const [costPrice, setCostPrice] = useState<string>('');
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [initStock, setInitStock] = useState<string>('');
+  const [saleDate, setSaleDate] = useState<string>('');
 
   // 1. 自动匹配：根据输入内容筛选已有商品
   const matchedProduct = useMemo(() => {
@@ -68,7 +69,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
 
       // 执行售卖记录录入，使用手动输入的单价计算总金额
       const overrideTotal = salePrice > 0 ? salePrice * quantity : undefined;
-      const success = await addSale(finalProductId, quantity, salesperson, undefined, overrideTotal);
+      const success = await addSale(finalProductId, quantity, salesperson, saleDate || undefined, overrideTotal);
       
       if (success) {
         alert(isNewProduct ? `已创建新商品 "${searchTerm}" 并完成售卖！` : '销售记录已成功添加！');
@@ -103,19 +104,33 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
         </div>
 
         <form onSubmit={handleCheckout} className="p-6 space-y-5">
-          {/* 销售人员（置顶，结算后不清空） */}
-          <div>
-            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-              <User className="w-4 h-4" /> 销售人员
-            </label>
-            <input
-              type="text"
-              value={salesperson}
-              onChange={(e) => setSalesperson(e.target.value)}
-              placeholder="输入经手人姓名（结算后保留）"
-              className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
-              required
-            />
+          {/* 销售人员 + 日期（置顶，结算后不清空） */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                <User className="w-4 h-4" /> 销售人员
+              </label>
+              <input
+                type="text"
+                value={salesperson}
+                onChange={(e) => setSalesperson(e.target.value)}
+                placeholder="输入经手人姓名（结算后保留）"
+                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                required
+              />
+            </div>
+            <div>
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                <CalendarDays className="w-4 h-4" /> 销售日期
+              </label>
+              <input
+                type="date"
+                value={saleDate}
+                onChange={(e) => setSaleDate(e.target.value)}
+                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                title="不填则默认当天"
+              />
+            </div>
           </div>
 
           {/* 商品名称输入/搜索 */}
