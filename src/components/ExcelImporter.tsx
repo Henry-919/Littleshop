@@ -74,7 +74,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
   };
 
   return (
-    <div className="flex items-center gap-3 flex-wrap">
+    <div className="w-full sm:col-span-2 flex items-center gap-3 flex-wrap">
       <select
         value={importMode}
         onChange={(e) => setImportMode(e.target.value as 'increment' | 'overwrite')}

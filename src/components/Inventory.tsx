@@ -645,7 +645,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   return (
     <div className="space-y-5 animate-in fade-in duration-500">
       {/* 顶部工具栏 */}
-      <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 space-y-5">
+      <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
           <div className="p-3 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-200">
@@ -657,21 +657,22 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           </div>
         </div>
 
-          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+          <div className="w-full xl:w-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
             <button
               onClick={async () => {
                 setDeletedPage(1);
                 setShowDeleted(true);
                 await loadDeletedProducts();
               }}
-              className="w-full sm:w-auto h-11 px-4 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
+              className="w-full h-11 px-4 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
             >
               查看删除记录
             </button>
 
             <button
               onClick={() => setIsScanOpen(true)}
-              className="w-full sm:w-auto h-11 px-4 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-indigo-100 shadow-sm text-sm"
+              className="w-full h-11 px-4 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-indigo-100 shadow-sm text-sm"
             >
               <ScanLine className="w-5 h-5" /> AI 小票扫描
             </button>
@@ -683,31 +684,33 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 setShowTransferHistory(true);
                 await loadTransferHistory();
               }}
-              className="w-full sm:w-auto h-11 px-4 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-sky-100 shadow-sm text-sm"
+              className="w-full h-11 px-4 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-sky-100 shadow-sm text-sm"
             >
               <ArrowRightLeft className="w-5 h-5" /> 调货记录
             </button>
 
             <button
               onClick={() => setIsAddOpen(true)}
-              className="w-full sm:w-auto h-11 px-4 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
+              className="w-full h-11 px-4 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
             >
               <Plus className="w-5 h-5" /> 新增商品
             </button>
 
             <button
               onClick={handleOpenTransfer}
-              className="w-full sm:w-auto h-11 px-4 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-amber-100 shadow-sm text-sm"
+              className="w-full h-11 px-4 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-amber-100 shadow-sm text-sm"
             >
               <ArrowRightLeft className="w-5 h-5" /> 店铺调货
             </button>
 
             <ExcelImporter store={store} />
             <StockBatchImporter store={store} />
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3">
+        <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-3 md:p-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3">
           <div className="relative md:col-span-2 xl:col-span-3">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input 
@@ -780,6 +783,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           >
             导出负库存
           </button>
+          </div>
         </div>
       </div>
 
