@@ -829,7 +829,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
 
       <button
         onClick={() => setOpen(true)}
-        className="w-full sm:w-auto px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-emerald-100 shadow-sm text-sm"
+        className="w-full sm:w-auto h-11 px-4 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-emerald-100 shadow-sm text-sm"
       >
         <FileSpreadsheet className="w-4 h-4" />
         批量补库存

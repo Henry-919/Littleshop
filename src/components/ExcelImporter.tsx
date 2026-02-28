@@ -74,12 +74,12 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
   };
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex items-center gap-3 flex-wrap">
       <select
         value={importMode}
         onChange={(e) => setImportMode(e.target.value as 'increment' | 'overwrite')}
         disabled={importing}
-        className="px-3 py-2.5 border border-slate-200 rounded-xl text-xs text-slate-600 bg-white"
+        className="h-11 px-3 border border-slate-200 rounded-xl text-sm text-slate-600 bg-white"
       >
         <option value="increment">增量入库</option>
         <option value="overwrite">覆盖库存</option>
@@ -96,7 +96,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
       <button
         onClick={() => fileInputRef.current?.click()}
         disabled={importing}
-        className={`px-4 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 shadow-sm border
+        className={`h-11 px-4 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 shadow-sm border text-sm
           ${importing 
             ? 'bg-slate-50 text-slate-400 cursor-not-allowed border-slate-100' 
             : 'bg-white text-slate-700 hover:bg-slate-50 active:scale-95 border-slate-200'
@@ -107,7 +107,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
         ) : (
           <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
         )}
-        <span className="text-sm">{importing ? '处理中...' : '导入 Excel'}</span>
+        <span>{importing ? '处理中...' : '导入 Excel'}</span>
       </button>
 
       {importing && (

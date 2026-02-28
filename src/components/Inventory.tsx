@@ -645,8 +645,8 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   return (
     <div className="space-y-5 animate-in fade-in duration-500">
       {/* 顶部工具栏 */}
-      <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 space-y-5">
+        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
           <div className="p-3 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-200">
             <Layers className="w-6 h-6" />
@@ -657,21 +657,21 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           </div>
         </div>
 
-          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
             <button
               onClick={async () => {
                 setDeletedPage(1);
                 setShowDeleted(true);
                 await loadDeletedProducts();
               }}
-              className="w-full sm:w-auto px-3 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
+              className="w-full sm:w-auto h-11 px-4 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
             >
               查看删除记录
             </button>
 
             <button
               onClick={() => setIsScanOpen(true)}
-              className="w-full sm:w-auto px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-indigo-100 shadow-sm text-sm"
+              className="w-full sm:w-auto h-11 px-4 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-indigo-100 shadow-sm text-sm"
             >
               <ScanLine className="w-5 h-5" /> AI 小票扫描
             </button>
@@ -683,21 +683,21 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 setShowTransferHistory(true);
                 await loadTransferHistory();
               }}
-              className="w-full sm:w-auto px-4 py-2 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-sky-100 shadow-sm text-sm"
+              className="w-full sm:w-auto h-11 px-4 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-sky-100 shadow-sm text-sm"
             >
               <ArrowRightLeft className="w-5 h-5" /> 调货记录
             </button>
 
             <button
               onClick={() => setIsAddOpen(true)}
-              className="w-full sm:w-auto px-4 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
+              className="w-full sm:w-auto h-11 px-4 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
             >
               <Plus className="w-5 h-5" /> 新增商品
             </button>
 
             <button
               onClick={handleOpenTransfer}
-              className="w-full sm:w-auto px-4 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-amber-100 shadow-sm text-sm"
+              className="w-full sm:w-auto h-11 px-4 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-amber-100 shadow-sm text-sm"
             >
               <ArrowRightLeft className="w-5 h-5" /> 店铺调货
             </button>
@@ -707,38 +707,38 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1.1fr)_minmax(280px,1.15fr)_repeat(3,minmax(140px,1fr))] gap-2 md:gap-3">
-          <div className="relative">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3">
+          <div className="relative md:col-span-2 xl:col-span-3">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input 
               type="text"
               placeholder="搜索商品..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 text-sm transition-all"
+              className="w-full h-11 pl-10 pr-4 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 text-sm transition-all"
             />
           </div>
 
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 md:col-span-2 xl:col-span-3">
             <input
               type="date"
               value={inboundStart}
               onChange={(e) => setInboundStart(e.target.value)}
-              className="flex-1 min-w-0 px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              className="h-11 flex-1 min-w-0 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
             />
             <span className="text-xs text-slate-400">-</span>
             <input
               type="date"
               value={inboundEnd}
               onChange={(e) => setInboundEnd(e.target.value)}
-              className="flex-1 min-w-0 px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              className="h-11 flex-1 min-w-0 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
 
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+            className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 xl:col-span-2"
           >
             <option value="all">产品类型：全部</option>
             <option value="uncategorized">产品类型：未分类</option>
@@ -750,7 +750,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           <select
             value={dwellFilter}
             onChange={(e) => setDwellFilter(e.target.value as typeof dwellFilter)}
-            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+            className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 xl:col-span-2"
           >
             <option value="all">滞留天数：全部</option>
             <option value="0-7">0-7 天</option>
@@ -760,7 +760,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
           <button
             onClick={handleClearFilters}
-            className="w-full px-3 py-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-slate-200 shadow-sm text-sm"
+            className="w-full h-11 px-3 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-200 shadow-sm text-sm xl:col-span-2"
           >
             清空筛选
           </button>
@@ -768,7 +768,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           <select
             value={stockStatusFilter}
             onChange={(e) => setStockStatusFilter(e.target.value as 'all' | 'negative')}
-            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+            className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 xl:col-span-2"
           >
             <option value="all">库存状态：全部</option>
             <option value="negative">库存状态：负库存</option>
@@ -776,7 +776,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
           <button
             onClick={handleExportNegativeStock}
-            className="w-full px-3 py-2.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-rose-100 shadow-sm text-sm"
+            className="w-full h-11 px-3 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-rose-100 shadow-sm text-sm xl:col-span-2"
           >
             导出负库存
           </button>
