@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Building2, Plus, Trash2, Loader2, Edit2, Check, RotateCcw, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { formatZhDateTime, formatZhDateTimeShort } from '../lib/date';
 
 interface StoreItem {
   id: string;
@@ -314,7 +315,7 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
                       <div key={item.id} className="bg-slate-50 rounded-xl p-3 flex items-center justify-between">
                         <span className="font-medium text-slate-700 text-sm">{item.name}</span>
                         <span className="text-[11px] text-slate-400">
-                          {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                          {formatZhDateTimeShort(item.deleted_at)}
                         </span>
                       </div>
                     ))}
@@ -333,7 +334,7 @@ export function Stores({ onStoresChanged }: { onStoresChanged?: () => void }) {
                           <tr key={item.id}>
                             <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
                             <td className="px-6 py-3 text-slate-500">
-                              {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                              {formatZhDateTime(item.deleted_at)}
                             </td>
                           </tr>
                         ))}

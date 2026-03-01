@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { Upload, Loader2, FileSpreadsheet } from 'lucide-react';
+import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
 
 // 修复点：修改 Props 定义，使其既能接收 store，也能兼容回调
 interface ExcelImporterProps {
@@ -17,11 +18,12 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState('');
   const [importMode, setImportMode] = useState<'increment' | 'overwrite'>('increment');
+  const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !processExcelImport) {
-      if (!processExcelImport) alert("Store 导入功能未就绪");
+      if (!processExcelImport) setFeedback({ type: 'error', text: 'Store 导入功能未就绪。' });
       return;
     }
 
@@ -40,7 +42,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
         const data = XLSX.utils.sheet_to_json(ws);
         
         if (data.length === 0) {
-          alert('Excel 文件似乎是空的');
+          setFeedback({ type: 'error', text: 'Excel 文件似乎是空的。' });
           setImporting(false);
           return;
         }
@@ -48,7 +50,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
         setProgress('正在同步到数据库...');
         const successCount = await processExcelImport(data, (msg: string) => setProgress(msg), importMode);
         
-        alert(`导入成功！共处理 ${successCount} 条数据。`);
+        setFeedback({ type: 'success', text: `导入成功，共处理 ${successCount} 条数据。` });
         
         // 刷新 UI
         if (typeof fetchData === 'function') {
@@ -57,7 +59,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
 
       } catch (err) {
         console.error('Excel Import Error:', err);
-        alert('解析 Excel 失败，请确保格式正确（列名需包含：商品名称、类目、成本价、库存数量；销售价可为空）');
+        setFeedback({ type: 'error', text: '解析 Excel 失败，请确保格式正确（需包含：商品名称、类目、成本价、库存数量）。' });
       } finally {
         setImporting(false);
         setProgress('');
@@ -66,7 +68,7 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
     };
 
     reader.onerror = () => {
-      alert('文件读取出错');
+      setFeedback({ type: 'error', text: '文件读取出错。' });
       setImporting(false);
     };
 
@@ -75,6 +77,10 @@ export function ExcelImporter({ store, onImportComplete }: ExcelImporterProps) {
 
   return (
     <div className="w-full sm:col-span-2 flex items-center gap-3 flex-wrap">
+      <div className="w-full">
+        <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
+      </div>
+
       <select
         value={importMode}
         onChange={(e) => setImportMode(e.target.value as 'increment' | 'overwrite')}

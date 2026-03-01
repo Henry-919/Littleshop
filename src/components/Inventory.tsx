@@ -9,6 +9,7 @@ import {
 import { ExcelImporter } from './ExcelImporter';
 import { ReceiptScanner } from './ReceiptScanner';
 import { StockBatchImporter } from './StockBatchImporter';
+import { formatZhDateTime } from '../lib/date';
 
 const normalizeModel = (value: string) =>
   value
@@ -1359,7 +1360,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                           <tr key={item.id}>
                             <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
                             <td className="px-6 py-3 text-slate-500">
-                              {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                              {formatZhDateTime(item.deleted_at)}
                             </td>
                           </tr>
                         ))}
@@ -1444,7 +1445,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                         <div className="text-slate-600">数量：{item.quantity}</div>
                         <div className="text-slate-600">调出：{storeNameMap[item.source_store_id] || item.source_store_id || '-'}</div>
                         <div className="text-slate-600">调入：{storeNameMap[item.target_store_id] || item.target_store_id || '-'}</div>
-                        <div className="text-slate-500">{item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : '-'}</div>
+                        <div className="text-slate-500">{formatZhDateTime(item.created_at)}</div>
                       </div>
                     ))}
                   </div>
@@ -1467,7 +1468,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                           <td className="px-4 py-3 text-slate-600">{item.quantity}</td>
                           <td className="px-4 py-3 text-slate-600">{storeNameMap[item.source_store_id] || item.source_store_id || '-'}</td>
                           <td className="px-4 py-3 text-slate-600">{storeNameMap[item.target_store_id] || item.target_store_id || '-'}</td>
-                          <td className="px-4 py-3 text-slate-500">{item.created_at ? new Date(item.created_at).toLocaleString('zh-CN') : '-'}</td>
+                          <td className="px-4 py-3 text-slate-500">{formatZhDateTime(item.created_at)}</td>
                         </tr>
                       ))}
                     </tbody>

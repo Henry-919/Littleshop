@@ -1,9 +1,29 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useStore } from '../hooks/useStore';
 import { ShoppingBag, User, Plus, Search, CheckCircle2, Tag, Package, DollarSign, CalendarDays } from 'lucide-react';
+import { formatZhDateTime } from '../lib/date';
+import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
+
+type PosEntryRecord = {
+  id: string;
+  inputOrder: number;
+  createdAt: string;
+  productName: string;
+  quantity: number;
+  saleUnitPrice: number;
+  totalAmount: number;
+  salesperson: string;
+  saleDate?: string;
+  isNewProduct: boolean;
+  costPrice?: number;
+  inventoryInput?: number;
+};
+
+const POS_ENTRY_RECORDS_KEY = 'pos_entry_records_v1';
+const POS_ENTRY_RECORDS_LIMIT = 120;
 
 export function POS({ store }: { store: ReturnType<typeof useStore> }) {
-  const { products, categories, addSale, addProduct } = store;
+  const { products, categories, addSale } = store;
   
   // 状态管理
   const [searchTerm, setSearchTerm] = useState('');
@@ -16,6 +36,30 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [initStock, setInitStock] = useState<string>('');
   const [saleDate, setSaleDate] = useState<string>('');
+  const [entryRecords, setEntryRecords] = useState<PosEntryRecord[]>([]);
+  const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(POS_ENTRY_RECORDS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setEntryRecords(parsed.slice(-POS_ENTRY_RECORDS_LIMIT));
+      }
+    } catch {
+      setEntryRecords([]);
+    }
+  }, []);
+
+  const persistEntryRecords = (next: PosEntryRecord[]) => {
+    setEntryRecords(next);
+    try {
+      localStorage.setItem(POS_ENTRY_RECORDS_KEY, JSON.stringify(next));
+    } catch {
+      // ignore write failure
+    }
+  };
 
   // 1. 自动匹配：根据输入内容筛选已有商品
   const matchedProduct = useMemo(() => {
@@ -29,9 +73,18 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!salesperson) return alert('请填写销售人员姓名');
-    if (quantity <= 0) return alert('数量必须大于0');
-    if (!manualPrice || parseFloat(manualPrice) <= 0) return alert('请输入有效的销售单价');
+    if (!salesperson) {
+      setFeedback({ type: 'error', text: '请填写销售人员姓名。' });
+      return;
+    }
+    if (quantity <= 0) {
+      setFeedback({ type: 'error', text: '数量必须大于 0。' });
+      return;
+    }
+    if (!manualPrice || parseFloat(manualPrice) <= 0) {
+      setFeedback({ type: 'error', text: '请输入有效的销售单价。' });
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -44,7 +97,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
         const newInitStock = parseInt(initStock, 10) || 0;
 
         if (newCostPrice <= 0) {
-          alert('新商品请填写有效的成本价');
+          setFeedback({ type: 'error', text: '新商品请填写有效的成本价。' });
           setIsSubmitting(false);
           return;
         }
@@ -72,7 +125,29 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
       const success = await addSale(finalProductId, quantity, salesperson, saleDate || undefined, overrideTotal);
       
       if (success) {
-        alert(isNewProduct ? `已创建新商品 "${searchTerm}" 并完成售卖！` : '销售记录已成功添加！');
+        const lastOrder = entryRecords.length ? entryRecords[entryRecords.length - 1].inputOrder : 0;
+        const record: PosEntryRecord = {
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          inputOrder: lastOrder + 1,
+          createdAt: new Date().toISOString(),
+          productName: searchTerm,
+          quantity,
+          saleUnitPrice: salePrice,
+          totalAmount: Number((salePrice * quantity).toFixed(2)),
+          salesperson,
+          saleDate: saleDate || undefined,
+          isNewProduct,
+          costPrice: isNewProduct ? (parseFloat(costPrice) || 0) : undefined,
+          inventoryInput: isNewProduct ? (parseInt(initStock, 10) || 0) : undefined,
+        };
+
+        const nextRecords = [...entryRecords, record].slice(-POS_ENTRY_RECORDS_LIMIT);
+        persistEntryRecords(nextRecords);
+
+        setFeedback({
+          type: 'success',
+          text: isNewProduct ? `已创建新商品“${searchTerm}”并完成售卖。` : '销售记录已成功添加。'
+        });
         // 重置表单（不重置销售员）
         setSearchTerm('');
         setSelectedProductId('');
@@ -82,11 +157,11 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
         setInitStock('');
         setSelectedCategoryId('');
       } else {
-        alert('销售失败，请检查系统日志。');
+        setFeedback({ type: 'error', text: '销售失败，请稍后重试。' });
       }
     } catch (error) {
       console.error("Checkout error:", error);
-      alert('提交过程中发生错误，请重试。');
+      setFeedback({ type: 'error', text: '提交过程中发生错误，请重试。' });
     } finally {
       setIsSubmitting(false);
     }
@@ -94,6 +169,8 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
+
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-100 bg-slate-50/50">
           <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -275,6 +352,49 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
             {isSubmitting ? '处理中...' : <><CheckCircle2 className="w-5 h-5" /> 完成并录入结算</>}
           </button>
         </form>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base sm:text-lg font-bold text-slate-900">销售录入记录（人工核对）</h3>
+            <p className="text-xs text-slate-500 mt-0.5">按输入顺序保留，便于人工复核</p>
+          </div>
+          <button
+            onClick={() => persistEntryRecords([])}
+            className="px-3 py-1.5 text-xs font-bold bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all"
+          >
+            清空
+          </button>
+        </div>
+
+        <div className="p-4 sm:p-5">
+          {entryRecords.length === 0 ? (
+            <div className="text-sm text-slate-400">暂无销售录入记录</div>
+          ) : (
+            <div className="max-h-[42vh] overflow-y-auto border border-slate-100 rounded-xl divide-y divide-slate-100">
+              {entryRecords.map((item) => (
+                <div key={item.id} className="p-3 text-xs sm:text-sm bg-white">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-bold text-slate-800 break-words">#{item.inputOrder} · {item.productName}</div>
+                    <div className="text-[11px] text-slate-400 shrink-0">{formatZhDateTime(item.createdAt)}</div>
+                  </div>
+                  <div className="mt-1 text-slate-600 break-words">
+                    数量 {item.quantity} · 单价 ￥{item.saleUnitPrice.toFixed(2)} · 小计 ￥{item.totalAmount.toFixed(2)}
+                  </div>
+                  <div className="mt-1 text-slate-500 break-words">
+                    销售员：{item.salesperson || '系统默认'} · 销售日期：{item.saleDate || '未指定'} · {item.isNewProduct ? '新商品' : '已有商品'}
+                  </div>
+                  {item.isNewProduct && (
+                    <div className="mt-1 text-[11px] text-amber-700">
+                      新商品入库：成本价 ￥{Number(item.costPrice || 0).toFixed(2)} · 初始库存 {item.inventoryInput ?? 0}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

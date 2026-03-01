@@ -2,11 +2,14 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { useStore } from '../hooks/useStore';
 import { Trash2, History, ReceiptText, User, X, Pencil, Check, XCircle, Search, Filter } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { formatZhDateTime, formatZhDateTimeShort, parseAppDate, toDateInputValue } from '../lib/date';
+import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
 
 type EditingState = {
   saleId: string;
   productId: string;
   quantity: string;
+  unitPrice: string;
   totalAmount: string;
   salesperson: string;
   date: string;
@@ -22,6 +25,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7d' | 'month'>('all');
   const [salespersonFilter, setSalespersonFilter] = useState<string>('all');
+  const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
 
   const getProductName = (id: string) => {
     return products.find(p => p.id === id)?.name || '未知商品';
@@ -29,30 +33,110 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
 
   const handleDelete = async (saleId: string) => {
     if (window.confirm('确定要撤销这条销售记录吗？\n撤销后该商品的库存将自动还原。')) {
-      await deleteSale(saleId);
-      if (editing?.saleId === saleId) setEditing(null);
+      const ok = await deleteSale(saleId);
+      if (ok) {
+        setFeedback({ type: 'success', text: '销售记录已撤销，库存已自动还原。' });
+        if (editing?.saleId === saleId) setEditing(null);
+      } else {
+        setFeedback({ type: 'error', text: '撤销失败，请稍后重试。' });
+      }
     }
   };
 
   const startEdit = useCallback((sale: any) => {
+    const qty = Number(sale.quantity) || 1;
+    const amount = Number(sale.totalAmount) || 0;
+    const unitPrice = qty > 0 ? amount / qty : 0;
     setEditing({
       saleId: sale.id,
       productId: sale.productId,
       quantity: String(sale.quantity),
+      unitPrice: unitPrice > 0 ? unitPrice.toFixed(2) : '0',
       totalAmount: String(sale.totalAmount || 0),
       salesperson: sale.salesperson || '',
-      date: sale.date ? sale.date.slice(0, 10) : ''
+      date: toDateInputValue(sale.date)
     });
   }, []);
 
   const cancelEdit = () => setEditing(null);
 
+  const handleEditKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveEdit();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    }
+  };
+
+  const updateEditingQuantity = (qtyText: string) => {
+    if (!editing) return;
+    const parsedQty = parseInt(qtyText, 10);
+    const unitPrice = parseFloat(editing.unitPrice);
+    const nextTotal = Number.isFinite(parsedQty) && parsedQty > 0 && Number.isFinite(unitPrice) && unitPrice >= 0
+      ? (parsedQty * unitPrice).toFixed(2)
+      : editing.totalAmount;
+
+    setEditing({
+      ...editing,
+      quantity: qtyText,
+      totalAmount: nextTotal
+    });
+  };
+
+  const updateEditingUnitPrice = (unitPriceText: string) => {
+    if (!editing) return;
+    const parsedQty = parseInt(editing.quantity, 10);
+    const parsedUnit = parseFloat(unitPriceText);
+    const nextTotal = Number.isFinite(parsedQty) && parsedQty > 0 && Number.isFinite(parsedUnit) && parsedUnit >= 0
+      ? (parsedQty * parsedUnit).toFixed(2)
+      : editing.totalAmount;
+
+    setEditing({
+      ...editing,
+      unitPrice: unitPriceText,
+      totalAmount: nextTotal
+    });
+  };
+
+  const updateEditingTotal = (totalText: string) => {
+    if (!editing) return;
+    const parsedQty = parseInt(editing.quantity, 10);
+    const parsedTotal = parseFloat(totalText);
+    const nextUnit = Number.isFinite(parsedQty) && parsedQty > 0 && Number.isFinite(parsedTotal) && parsedTotal >= 0
+      ? (parsedTotal / parsedQty).toFixed(2)
+      : editing.unitPrice;
+
+    setEditing({
+      ...editing,
+      totalAmount: totalText,
+      unitPrice: nextUnit
+    });
+  };
+
+  const bumpEditingQuantity = (delta: number) => {
+    if (!editing) return;
+    const current = parseInt(editing.quantity, 10);
+    const base = Number.isFinite(current) ? current : 1;
+    const next = Math.max(1, base + delta);
+    updateEditingQuantity(String(next));
+  };
+
   const saveEdit = async () => {
     if (!editing || !updateSale) return;
     const qty = parseInt(editing.quantity, 10);
     const amt = parseFloat(editing.totalAmount);
-    if (!Number.isFinite(qty) || qty <= 0) return;
-    if (!Number.isFinite(amt) || amt < 0) return;
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setFeedback({ type: 'error', text: '数量必须大于 0。' });
+      return;
+    }
+    if (!Number.isFinite(amt) || amt < 0) {
+      setFeedback({ type: 'error', text: '金额必须大于或等于 0。' });
+      return;
+    }
 
     setSaving(true);
     try {
@@ -63,15 +147,20 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
         salesperson: editing.salesperson,
         date: editing.date || undefined
       });
-      if (ok) setEditing(null);
+      if (ok) {
+        setEditing(null);
+        setFeedback({ type: 'success', text: '销售记录已保存。' });
+      } else {
+        setFeedback({ type: 'error', text: '保存失败，请稍后重试。' });
+      }
     } finally {
       setSaving(false);
     }
   };
 
   const sortedSales = [...sales].sort((a, b) => {
-    const dateA = new Date(a.date || 0).getTime();
-    const dateB = new Date(b.date || 0).getTime();
+    const dateA = parseAppDate(a.date)?.getTime() || 0;
+    const dateB = parseAppDate(b.date)?.getTime() || 0;
     return dateB - dateA;
   });
 
@@ -94,7 +183,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
 
     return sortedSales.filter((sale) => {
       const productName = getProductName(sale.productId);
-      const dateValue = sale.date ? new Date(sale.date).getTime() : 0;
+      const dateValue = parseAppDate(sale.date)?.getTime() || 0;
       const salespersonName = String(sale.salesperson || '').trim();
 
       const matchesSearch = !term ||
@@ -145,6 +234,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                 type="date"
                 value={editing.date}
                 onChange={e => setEditing({ ...editing, date: e.target.value })}
+                onKeyDown={handleEditKeyDown}
                 className="w-full px-2 py-2 border border-sky-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-400 outline-none bg-white"
               />
             </div>
@@ -154,6 +244,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                 type="text"
                 value={editing.salesperson}
                 onChange={e => setEditing({ ...editing, salesperson: e.target.value })}
+                onKeyDown={handleEditKeyDown}
                 className="w-full px-2 py-2 border border-sky-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-400 outline-none bg-white"
                 placeholder="收银员"
               />
@@ -164,6 +255,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             <select
               value={editing.productId}
               onChange={e => setEditing({ ...editing, productId: e.target.value })}
+              onKeyDown={handleEditKeyDown}
               className="w-full px-2 py-2 border border-sky-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-400 outline-none bg-white"
             >
               {products.map(p => (
@@ -171,23 +263,43 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               ))}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <div>
               <label className="text-[10px] text-slate-500 font-medium">数量</label>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => bumpEditingQuantity(-1)}
+                  className="px-2 py-2 border border-sky-200 bg-white rounded-lg text-sky-600 font-bold"
+                >
+                  -
+                </button>
+                <input
+                  type="number"
+                  min="1"
+                  value={editing.quantity}
+                  onChange={e => updateEditingQuantity(e.target.value)}
+                  onKeyDown={handleEditKeyDown}
+                  className="w-full px-2 py-2 border border-sky-200 rounded-lg text-sm text-right focus:ring-2 focus:ring-sky-400 outline-none font-mono bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => bumpEditingQuantity(1)}
+                  className="px-2 py-2 border border-sky-200 bg-white rounded-lg text-sky-600 font-bold"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-500 font-medium">单价 (￥)</label>
               <input
                 type="number"
-                min="1"
-                value={editing.quantity}
-                onChange={e => {
-                  const qty = e.target.value;
-                  const parsedQty = parseInt(qty, 10);
-                  const oldQty = Number(editing.quantity) || 1;
-                  const unitPrice = Number(editing.totalAmount) / oldQty;
-                  const newTotal = Number.isFinite(parsedQty) && parsedQty > 0 && Number.isFinite(unitPrice) && unitPrice > 0
-                    ? (parsedQty * unitPrice).toFixed(2)
-                    : editing.totalAmount;
-                  setEditing({ ...editing, quantity: qty, totalAmount: newTotal });
-                }}
+                step="0.01"
+                min="0"
+                value={editing.unitPrice}
+                onChange={e => updateEditingUnitPrice(e.target.value)}
+                onKeyDown={handleEditKeyDown}
                 className="w-full px-2 py-2 border border-sky-200 rounded-lg text-sm text-right focus:ring-2 focus:ring-sky-400 outline-none font-mono bg-white"
               />
             </div>
@@ -198,11 +310,13 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                 step="0.01"
                 min="0"
                 value={editing.totalAmount}
-                onChange={e => setEditing({ ...editing, totalAmount: e.target.value })}
+                onChange={e => updateEditingTotal(e.target.value)}
+                onKeyDown={handleEditKeyDown}
                 className="w-full px-2 py-2 border border-sky-200 rounded-lg text-sm text-right focus:ring-2 focus:ring-sky-400 outline-none font-mono bg-white"
               />
             </div>
           </div>
+          <div className="text-[11px] text-slate-500">快捷键：Enter 保存，Esc 取消</div>
           <div className="flex gap-2 pt-1">
             <button
               onClick={saveEdit}
@@ -231,7 +345,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             <span className="shrink-0 px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-mono text-[11px]">×{sale.quantity}</span>
           </div>
           <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
-            <span>{date ? new Date(date).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</span>
+            <span>{formatZhDateTimeShort(date)}</span>
             <span>·</span>
             <span>{sale.salesperson || '系统默认'}</span>
           </div>
@@ -272,6 +386,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               type="date"
               value={editing.date}
               onChange={e => setEditing({ ...editing, date: e.target.value })}
+              onKeyDown={handleEditKeyDown}
               className="w-full px-2 py-1.5 border border-sky-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-400 outline-none"
             />
           </td>
@@ -279,6 +394,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             <select
               value={editing.productId}
               onChange={e => setEditing({ ...editing, productId: e.target.value })}
+              onKeyDown={handleEditKeyDown}
               className="w-full px-2 py-1.5 border border-sky-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-400 outline-none"
             >
               {products.map(p => (
@@ -287,32 +403,55 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             </select>
           </td>
           <td className="px-6 py-3">
-            <input
-              type="number"
-              min="1"
-              value={editing.quantity}
-              onChange={e => {
-                const qty = e.target.value;
-                const parsedQty = parseInt(qty, 10);
-                const oldQty = Number(editing.quantity) || 1;
-                const unitPrice = Number(editing.totalAmount) / oldQty;
-                const newTotal = Number.isFinite(parsedQty) && parsedQty > 0 && Number.isFinite(unitPrice) && unitPrice > 0
-                  ? (parsedQty * unitPrice).toFixed(2)
-                  : editing.totalAmount;
-                setEditing({ ...editing, quantity: qty, totalAmount: newTotal });
-              }}
-              className="w-20 px-2 py-1.5 border border-sky-200 rounded-lg text-sm text-right focus:ring-2 focus:ring-sky-400 outline-none font-mono"
-            />
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => bumpEditingQuantity(-1)}
+                className="px-2 py-1.5 border border-sky-200 bg-white rounded-lg text-sky-600 font-bold"
+              >
+                -
+              </button>
+              <input
+                type="number"
+                min="1"
+                value={editing.quantity}
+                onChange={e => updateEditingQuantity(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                className="w-16 px-2 py-1.5 border border-sky-200 rounded-lg text-sm text-right focus:ring-2 focus:ring-sky-400 outline-none font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => bumpEditingQuantity(1)}
+                className="px-2 py-1.5 border border-sky-200 bg-white rounded-lg text-sky-600 font-bold"
+              >
+                +
+              </button>
+            </div>
           </td>
           <td className="px-6 py-3">
+            <div className="flex items-center gap-1 mb-1">
+              <span className="text-xs text-slate-400">单价</span>
+              <span className="text-sm text-slate-400">￥</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={editing.unitPrice}
+                onChange={e => updateEditingUnitPrice(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                className="w-20 px-2 py-1.5 border border-sky-200 rounded-lg text-sm text-right focus:ring-2 focus:ring-sky-400 outline-none font-mono"
+              />
+            </div>
             <div className="flex items-center gap-1">
+              <span className="text-xs text-slate-400">金额</span>
               <span className="text-sm text-slate-400">￥</span>
               <input
                 type="number"
                 step="0.01"
                 min="0"
                 value={editing.totalAmount}
-                onChange={e => setEditing({ ...editing, totalAmount: e.target.value })}
+                onChange={e => updateEditingTotal(e.target.value)}
+                onKeyDown={handleEditKeyDown}
                 className="w-24 px-2 py-1.5 border border-sky-200 rounded-lg text-sm text-right focus:ring-2 focus:ring-sky-400 outline-none font-mono"
               />
             </div>
@@ -322,9 +461,11 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               type="text"
               value={editing.salesperson}
               onChange={e => setEditing({ ...editing, salesperson: e.target.value })}
+              onKeyDown={handleEditKeyDown}
               className="w-full px-2 py-1.5 border border-sky-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-400 outline-none"
               placeholder="收银员"
             />
+            <div className="text-[10px] text-slate-400 mt-1">Enter 保存 / Esc 取消</div>
           </td>
           <td className="px-6 py-3 text-right">
             <div className="flex items-center justify-end gap-1">
@@ -353,12 +494,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
     return (
       <tr key={sale.id} className="hover:bg-slate-50/50 transition-colors group">
         <td className="px-6 py-4 text-slate-500 whitespace-nowrap text-sm">
-          {date ? new Date(date).toLocaleString('zh-CN', {
-            month: 'numeric',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }) : '-'}
+          {formatZhDateTimeShort(date)}
         </td>
         <td className="px-6 py-4">
           <div className="flex items-center gap-2">
@@ -432,6 +568,8 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
           </button>
         </div>
       </div>
+
+      <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
 
       {/* 搜索与筛选 */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-3 sm:p-4">
@@ -562,7 +700,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                         </div>
                         <div className="flex items-center justify-between mt-1.5 text-[11px] text-slate-400">
                           <span>×{item.quantity}</span>
-                          <span>删除于 {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</span>
+                          <span>删除于 {formatZhDateTimeShort(item.deleted_at)}</span>
                         </div>
                       </div>
                     ))}
@@ -583,7 +721,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                         {deletedSales.map((item) => (
                           <tr key={item.id}>
                             <td className="px-6 py-3 text-slate-500">
-                              {item.date ? new Date(item.date).toLocaleString('zh-CN') : '-'}
+                              {formatZhDateTime(item.date)}
                             </td>
                             <td className="px-6 py-3 font-medium text-slate-700">
                               {products.find(p => p.id === item.product_id)?.name || '未知商品'}
@@ -591,7 +729,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                             <td className="px-6 py-3 text-slate-500">{item.quantity}</td>
                             <td className="px-6 py-3 text-emerald-600 font-bold">￥{Number(item.total_amount || 0).toFixed(2)}</td>
                             <td className="px-6 py-3 text-slate-500">
-                              {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                              {formatZhDateTime(item.deleted_at)}
                             </td>
                           </tr>
                         ))}

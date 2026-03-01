@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useStore } from '../hooks/useStore';
 import { Tags, Plus, Trash2, Loader2, AlertCircle, Check, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { formatZhDateTime, formatZhDateTimeShort } from '../lib/date';
+import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
 
 export function Categories({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   const { categories, addCategory, updateCategory, deleteCategory, loading, products } = store;
@@ -11,6 +13,7 @@ export function Categories({ store, storeId }: { store: ReturnType<typeof useSto
   const [showDeleted, setShowDeleted] = useState(false);
   const [deletedCategories, setDeletedCategories] = useState<any[]>([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
 
   const loadDeletedCategories = async () => {
     if (!storeId) return;
@@ -58,9 +61,9 @@ export function Categories({ store, storeId }: { store: ReturnType<typeof useSto
     const success = await addCategory(name);
     if (success) {
       setNewCategoryName('');
-      alert(`分类 "${name}" 添加成功！`);
+      setFeedback({ type: 'success', text: `分类“${name}”添加成功。` });
     } else {
-      alert(`分类 "${name}" 添加失败，请重试。`);
+      setFeedback({ type: 'error', text: `分类“${name}”添加失败，请重试。` });
     }
     setIsSubmitting(false);
   };
@@ -76,9 +79,9 @@ export function Categories({ store, storeId }: { store: ReturnType<typeof useSto
     if (window.confirm(message)) {
       const success = await deleteCategory(id);
       if (success) {
-        alert(`分类 "${name}" 删除成功！`);
+        setFeedback({ type: 'success', text: `分类“${name}”删除成功。` });
       } else {
-        alert(`分类 "${name}" 删除失败，请重试。`);
+        setFeedback({ type: 'error', text: `分类“${name}”删除失败，请重试。` });
       }
     }
   };
@@ -94,6 +97,8 @@ export function Categories({ store, storeId }: { store: ReturnType<typeof useSto
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
+
       {/* 头部区域 */}
       <div className="p-4 md:p-6 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col sm:flex-row items-start sm:items-center gap-4">
         <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl">
@@ -308,7 +313,7 @@ export function Categories({ store, storeId }: { store: ReturnType<typeof useSto
                       <div key={item.id} className="bg-slate-50 rounded-xl p-3 flex items-center justify-between">
                         <span className="font-medium text-slate-700 text-sm">{item.name}</span>
                         <span className="text-[11px] text-slate-400">
-                          {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                          {formatZhDateTimeShort(item.deleted_at)}
                         </span>
                       </div>
                     ))}
@@ -327,7 +332,7 @@ export function Categories({ store, storeId }: { store: ReturnType<typeof useSto
                           <tr key={item.id}>
                             <td className="px-6 py-3 font-medium text-slate-700">{item.name}</td>
                             <td className="px-6 py-3 text-slate-500">
-                              {item.deleted_at ? new Date(item.deleted_at).toLocaleString('zh-CN') : '-'}
+                              {formatZhDateTime(item.deleted_at)}
                             </td>
                           </tr>
                         ))}

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X, Plus } from 'lucide-react';
 import heic2any from 'heic2any';
+import { formatZhDateTime } from '../lib/date';
 
 type MatchCandidate = {
   productId: string;
@@ -840,7 +841,7 @@ export function ReceiptScanner({ store }: { store: any }) {
                       {entry.saleDate || '未识别日期'} · 共 {entry.totalItems} 条
                     </div>
                     <div className="text-[11px] text-slate-500 break-words">
-                      {new Date(entry.createdAt).toLocaleString('zh-CN')}
+                      {formatZhDateTime(entry.createdAt)}
                     </div>
                   </div>
                   <div className="w-full sm:w-auto shrink-0 text-[11px] text-slate-500">

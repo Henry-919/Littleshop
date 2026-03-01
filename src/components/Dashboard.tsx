@@ -3,6 +3,7 @@ import { useStore } from '../hooks/useStore';
 import { TrendingUp, Users, ShoppingBag, AlertTriangle, PackageSearch, Medal } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
+import { parseAppDate } from '../lib/date';
 
 export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   const { sales, products, categories } = store;
@@ -30,7 +31,8 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
     
     const productSalesMap = new Map<string, number>();
     sales.forEach(sale => {
-      const saleDate = new Date(sale.date);
+      const saleDate = parseAppDate(sale.date);
+      if (!saleDate) return;
       if (saleDate.getMonth() === currentMonth && saleDate.getFullYear() === currentYear) {
         const current = productSalesMap.get(sale.productId) || 0;
         productSalesMap.set(sale.productId, current + sale.quantity);
@@ -105,8 +107,8 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
 
     const map = new Map<string, { total: number; daily: Map<string, number> }>();
     for (const sale of sales) {
-      const date = new Date(sale.date);
-      if (Number.isNaN(date.getTime())) continue;
+      const date = parseAppDate(sale.date);
+      if (!date) continue;
       const monthKey = toMonthKey(date);
       const dayKey = toDayKey(date);
       if (!map.has(monthKey)) {

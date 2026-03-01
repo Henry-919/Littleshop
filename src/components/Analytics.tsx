@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { AnalyticsData } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { TrendingUp, AlertTriangle, PackageSearch, Loader2 } from 'lucide-react';
+import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
 
 export function Analytics({ storeId }: { storeId?: string }) {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -24,7 +26,7 @@ export function Analytics({ storeId }: { storeId?: string }) {
       .catch((err) => {
         console.error('Failed to load analytics data:', err);
         setLoading(false);
-        alert('加载分析数据失败，请稍后重试。');
+        setFeedback({ type: 'error', text: '加载分析数据失败，请稍后重试。' });
       });
   }, [storeId]);
 
@@ -39,6 +41,8 @@ export function Analytics({ storeId }: { storeId?: string }) {
 
   return (
     <div className="space-y-6 h-full overflow-y-auto pb-6 custom-scrollbar">
+      <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
+
       {/* 顶部统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* 本月销冠 */}

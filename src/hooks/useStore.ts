@@ -153,15 +153,40 @@ export function useStore(storeId?: string) {
 
   const addSale = async (productId: string, quantity: number, salesperson: string, date?: string, overrideTotalAmount?: number) => {
     if (!storeId) return false;
-    const product = products.find(p => p.id === productId);
-    if (!product) return false;
+    let product = products.find(p => p.id === productId);
 
-    const newStock = product.stock - quantity;
+    if (!product) {
+      const { data: dbProduct, error: dbProductError } = await supabase
+        .from('products')
+        .select('id,name,price,stock,cost_price,category_id,time,store_id,deleted_at')
+        .eq('id', productId)
+        .eq('store_id', storeId)
+        .is('deleted_at', null)
+        .single();
+
+      if (dbProductError || !dbProduct) return false;
+
+      product = {
+        id: dbProduct.id,
+        name: dbProduct.name,
+        price: Number(dbProduct.price) || 0,
+        stock: Number(dbProduct.stock) || 0,
+        cost_price: dbProduct.cost_price,
+        category_id: dbProduct.category_id,
+        time: dbProduct.time,
+        store_id: dbProduct.store_id,
+        deleted_at: dbProduct.deleted_at
+      };
+
+      setProducts(prev => prev.some(p => p.id === productId) ? prev : [...prev, product as Product]);
+    }
+
+    const newStock = (Number(product.stock) || 0) - quantity;
     const saleDate = normalizeSaleDate(date);
     // 优先使用传入的实际售价（发票识别价格），否则用商品标价
     const finalTotalAmount = (overrideTotalAmount !== undefined && overrideTotalAmount > 0)
       ? overrideTotalAmount
-      : product.price * quantity;
+      : (Number(product.price) || 0) * quantity;
 
     const { data: saleData, error: saleError } = await supabase.from('sales').insert([{
       product_id: productId,
@@ -174,7 +199,13 @@ export function useStore(storeId?: string) {
 
     if (!saleError && saleData) {
       await supabase.from('products').update({ stock: newStock }).eq('id', productId);
-      setProducts(prev => prev.map(p => p.id === productId ? { ...p, stock: newStock } : p));
+      setProducts(prev => {
+        const existed = prev.some(p => p.id === productId);
+        if (existed) {
+          return prev.map(p => p.id === productId ? { ...p, stock: newStock } : p);
+        }
+        return [...prev, { ...(product as Product), stock: newStock }];
+      });
       setSales(prev => [{
         id: saleData.id,
         productId: saleData.product_id,

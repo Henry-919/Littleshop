@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { FileSpreadsheet, Loader2, X, AlertTriangle, CheckCircle2, ImageUp, History } from 'lucide-react';
 import heic2any from 'heic2any';
+import { formatZhDateTime } from '../lib/date';
 
 interface StockBatchImporterProps {
   store?: any;
@@ -1151,7 +1152,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                     {pagedHistory.map((item) => (
                       <div key={item.id} className="rounded-xl border border-slate-100 bg-slate-50/40 p-3 space-y-1.5">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] text-slate-500">{new Date(item.time).toLocaleString('zh-CN')}</span>
+                          <span className="text-[11px] text-slate-500">{formatZhDateTime(item.time)}</span>
                           <div className="flex items-center gap-1.5">
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">{item.source === 'excel' ? 'Excel' : '图片'}</span>
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${item.mode === 'auto' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
@@ -1184,7 +1185,7 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
                       <tbody className="divide-y divide-slate-100">
                         {pagedHistory.map((item) => (
                           <tr key={item.id} className="hover:bg-slate-50/60">
-                            <td className="px-4 py-3 text-xs text-slate-500">{new Date(item.time).toLocaleString('zh-CN')}</td>
+                            <td className="px-4 py-3 text-xs text-slate-500">{formatZhDateTime(item.time)}</td>
                             <td className="px-4 py-3 text-xs text-slate-700">{item.source === 'excel' ? 'Excel' : '图片'}</td>
                             <td className="px-4 py-3 text-xs">
                               <span className={`px-2 py-0.5 rounded-full font-bold ${item.mode === 'auto' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
