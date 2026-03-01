@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { appendInboundLogs } from '../lib/inboundLog';
 
 export interface Category { id: string; name: string; low_stock_threshold?: number | null; store_id?: string; deleted_at?: string | null; }
 export interface Product {
@@ -487,6 +488,7 @@ export function useStore(storeId?: string) {
     if (!storeId) return 0;
 
     let successCount = 0;
+    const inboundLogs: Array<{ storeId?: string; source: 'excel_import'; productName: string; qty: number; note?: string }> = [];
     const normalize = (value: string) => value.trim().toLowerCase();
 
     // 导入前从数据库拉取最新数据，避免前端状态滞后造成重复插入
@@ -553,6 +555,7 @@ export function useStore(storeId?: string) {
       // 修改逻辑：如果存在则覆盖库存数量
       const existing = currentProducts.find(p => normalize(p.name) === normalize(name));
       if (existing) {
+        const currentStock = Number(existing.stock) || 0;
         const targetStock = mode === 'increment' ? (Number(existing.stock) || 0) + stock : stock;
         const updates: Partial<Product> = { stock: targetStock, cost_price, category_id };
         if (price !== null) {
@@ -560,6 +563,16 @@ export function useStore(storeId?: string) {
         }
         const updated = await updateProduct(existing.id, updates);
         if (updated) {
+          const delta = targetStock - currentStock;
+          if (delta > 0) {
+            inboundLogs.push({
+              storeId,
+              source: 'excel_import',
+              productName: name,
+              qty: delta,
+              note: mode === 'overwrite' ? 'Excel导入（覆盖后净增加）' : 'Excel导入（增量）'
+            });
+          }
           currentProducts = currentProducts.map(p => p.id === existing.id ? { ...p, stock: targetStock } : p);
         }
       } else {
@@ -567,6 +580,15 @@ export function useStore(storeId?: string) {
         const { data, error } = await addProduct({ name, price: finalPrice, stock, cost_price, category_id });
 
         if (!error && data) {
+          if (stock > 0) {
+            inboundLogs.push({
+              storeId,
+              source: 'excel_import',
+              productName: name,
+              qty: stock,
+              note: 'Excel导入（新建商品）'
+            });
+          }
           currentProducts.push(data);
         } else if ((error as any)?.code === '23505' || (error as any)?.status === 409) {
           // 唯一键冲突时回退为更新（并发或历史数据大小写差异）
@@ -584,12 +606,25 @@ export function useStore(storeId?: string) {
             const targetStock = mode === 'increment'
               ? (Number(duplicatedCurrent?.stock) || 0) + stock
               : stock;
+            const previousStock = Number(duplicatedCurrent?.stock) || 0;
 
             const updates: Partial<Product> = { stock: targetStock, cost_price, category_id };
             if (price !== null) {
               updates.price = price;
             }
-            await updateProduct(duplicated.id, updates);
+            const ok = await updateProduct(duplicated.id, updates);
+            if (ok) {
+              const delta = targetStock - previousStock;
+              if (delta > 0) {
+                inboundLogs.push({
+                  storeId,
+                  source: 'excel_import',
+                  productName: name,
+                  qty: delta,
+                  note: mode === 'overwrite' ? 'Excel导入（覆盖后净增加）' : 'Excel导入（冲突回退更新）'
+                });
+              }
+            }
             if (!currentProducts.some(p => p.id === duplicated.id)) {
               currentProducts.push({ ...duplicated, stock: targetStock });
             } else {
@@ -600,6 +635,7 @@ export function useStore(storeId?: string) {
       }
       successCount++;
     }
+    appendInboundLogs(inboundLogs);
     await fetchData(); // 批量处理完刷新一次
     return successCount;
   };

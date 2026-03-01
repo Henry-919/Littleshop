@@ -3,9 +3,11 @@ import * as XLSX from 'xlsx';
 import { FileSpreadsheet, Loader2, X, AlertTriangle, CheckCircle2, ImageUp, History } from 'lucide-react';
 import heic2any from 'heic2any';
 import { formatZhDateTime } from '../lib/date';
+import { appendInboundLogs } from '../lib/inboundLog';
 
 interface StockBatchImporterProps {
   store?: any;
+  storeId?: string;
 }
 
 type ParsedRow = {
@@ -279,7 +281,7 @@ const exportReviewList = (
   XLSX.writeFile(wb, `${fileNamePrefix}_${yyyy}${mm}${dd}_${hh}${mi}.xlsx`);
 };
 
-export function StockBatchImporter({ store }: StockBatchImporterProps) {
+export function StockBatchImporter({ store, storeId }: StockBatchImporterProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -492,6 +494,16 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
           matchedProductName: item.bestCandidate?.productName || ''
         }));
       appendHistory(autoHistoryItems);
+      appendInboundLogs(
+        autoHistoryItems.map((item) => ({
+          storeId,
+          source: 'batch_restock',
+          productName: item.matchedProductName || item.model,
+          qty: item.qty,
+          note: `批量补库存（${item.source === 'image' ? '图片识别' : 'Excel'}·自动）`,
+          time: item.time
+        }))
+      );
 
       await fetchData?.();
 
@@ -784,6 +796,16 @@ export function StockBatchImporter({ store }: StockBatchImporterProps) {
 
       setManualSelections(remainingSelections);
       appendHistory(manualHistoryItems);
+      appendInboundLogs(
+        manualHistoryItems.map((item) => ({
+          storeId,
+          source: 'batch_restock',
+          productName: item.matchedProductName || item.model,
+          qty: item.qty,
+          note: `批量补库存（${item.source === 'image' ? '图片识别' : 'Excel'}·人工）`,
+          time: item.time
+        }))
+      );
       setReport((prev) => {
         if (!prev) return prev;
         return {

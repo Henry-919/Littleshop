@@ -4,12 +4,13 @@ import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import heic2any from 'heic2any';
 import { 
-  Layers, Search, ScanLine, Plus, Edit2, Trash2, Check, RotateCcw, X, AlertTriangle, ArrowRightLeft, ImageUp, Loader2
+  Layers, Search, ScanLine, Plus, Edit2, Trash2, Check, RotateCcw, X, AlertTriangle, ArrowRightLeft, ImageUp, Loader2, History
 } from 'lucide-react';
 import { ExcelImporter } from './ExcelImporter';
 import { ReceiptScanner } from './ReceiptScanner';
 import { StockBatchImporter } from './StockBatchImporter';
 import { formatZhDateTime } from '../lib/date';
+import { appendInboundLogs, getInboundLogsByStore } from '../lib/inboundLog';
 
 const normalizeModel = (value: string) =>
   value
@@ -141,9 +142,17 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   const [showTransferHistory, setShowTransferHistory] = useState(false);
   const [transferHistoryLoading, setTransferHistoryLoading] = useState(false);
   const [transferHistory, setTransferHistory] = useState<any[]>([]);
+  const [transferHistoryError, setTransferHistoryError] = useState('');
   const [transferHistoryStart, setTransferHistoryStart] = useState('');
   const [transferHistoryEnd, setTransferHistoryEnd] = useState('');
   const [storeNameMap, setStoreNameMap] = useState<Record<string, string>>({});
+  const [showInboundHistory, setShowInboundHistory] = useState(false);
+  const [inboundHistoryLoading, setInboundHistoryLoading] = useState(false);
+  const [inboundHistoryError, setInboundHistoryError] = useState('');
+  const [inboundHistory, setInboundHistory] = useState<any[]>([]);
+  const [inboundHistoryStart, setInboundHistoryStart] = useState('');
+  const [inboundHistoryEnd, setInboundHistoryEnd] = useState('');
+  const [inboundSourceFilter, setInboundSourceFilter] = useState<'all' | 'transfer_in' | 'batch_restock' | 'excel_import' | 'manual_add'>('all');
   const [transferForm, setTransferForm] = useState({
     productId: '',
     targetStoreId: '',
@@ -186,16 +195,21 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   };
 
   const loadTransferHistory = async () => {
-    if (!storeId) return;
+    if (!storeId) {
+      setTransferHistory([]);
+      setTransferHistoryError('当前门店未选择，无法加载调货记录');
+      return;
+    }
+
     setTransferHistoryLoading(true);
+    setTransferHistoryError('');
 
     const [transfersRes, storesRes] = await Promise.all([
       supabase
         .from('stock_transfers')
-        .select('id, product_name, quantity, source_store_id, target_store_id, created_at')
-        .or(`source_store_id.eq.${storeId},target_store_id.eq.${storeId}`)
+        .select('*')
         .order('created_at', { ascending: false })
-        .limit(200),
+        .limit(500),
       supabase
         .from('stores')
         .select('id,name')
@@ -203,9 +217,21 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     ]);
 
     if (!transfersRes.error && transfersRes.data) {
-      setTransferHistory(transfersRes.data);
+      const normalized = transfersRes.data
+        .map((item: any, index: number) => ({
+          id: item.id ?? `legacy-${index}-${item.created_at ?? ''}`,
+          product_name: item.product_name ?? item.product ?? item.name ?? '-',
+          quantity: Number(item.quantity ?? item.qty ?? 0),
+          source_store_id: item.source_store_id ?? item.from_store_id ?? '',
+          target_store_id: item.target_store_id ?? item.to_store_id ?? '',
+          created_at: item.created_at ?? item.createdAt ?? item.time ?? null
+        }))
+        .filter((item: any) => item.source_store_id === storeId || item.target_store_id === storeId);
+
+      setTransferHistory(normalized);
     } else {
       setTransferHistory([]);
+      setTransferHistoryError(transfersRes.error?.message || '调货记录加载失败');
     }
 
     if (!storesRes.error && storesRes.data) {
@@ -219,6 +245,70 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     }
 
     setTransferHistoryLoading(false);
+  };
+
+  const loadInboundHistory = async () => {
+    if (!storeId) {
+      setInboundHistory([]);
+      setInboundHistoryError('当前门店未选择，无法加载入库记录');
+      return;
+    }
+
+    setInboundHistoryLoading(true);
+    setInboundHistoryError('');
+
+    const [transfersRes, storesRes] = await Promise.all([
+      supabase
+        .from('stock_transfers')
+        .select('*')
+        .eq('target_store_id', storeId)
+        .order('created_at', { ascending: false })
+        .limit(500),
+      supabase
+        .from('stores')
+        .select('id,name')
+        .is('deleted_at', null)
+    ]);
+
+    const localStoreMap: Record<string, string> = {};
+    if (!storesRes.error && storesRes.data) {
+      storesRes.data.forEach((item: any) => {
+        localStoreMap[item.id] = item.name;
+      });
+      setStoreNameMap(localStoreMap);
+    }
+
+    const transferInboundItems = (!transfersRes.error && transfersRes.data
+      ? transfersRes.data.map((item: any, index: number) => ({
+          id: item.id ?? `transfer-${index}-${item.created_at ?? ''}`,
+          time: item.created_at ?? item.createdAt ?? new Date().toISOString(),
+          source: 'transfer_in' as const,
+          productName: item.product_name ?? item.product ?? item.name ?? '-',
+          qty: Number(item.quantity ?? item.qty ?? 0),
+          note: `调货调入：${localStoreMap[item.source_store_id] || item.source_store_id || '-'}`
+        }))
+      : []
+    ).filter((item: any) => Number.isFinite(item.qty) && item.qty > 0);
+
+    const localInboundItems = getInboundLogsByStore(storeId).map((item) => ({
+      id: item.id,
+      time: item.time,
+      source: item.source,
+      productName: item.productName,
+      qty: Number(item.qty || 0),
+      note: item.note || ''
+    }));
+
+    const merged = [...transferInboundItems, ...localInboundItems]
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+      .slice(0, 1000);
+
+    setInboundHistory(merged);
+    if (transfersRes.error) {
+      setInboundHistoryError(transfersRes.error.message || '调货入库记录加载失败');
+    }
+
+    setInboundHistoryLoading(false);
   };
 
   const filteredTransferHistory = useMemo(() => {
@@ -235,6 +325,31 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
       return true;
     });
   }, [transferHistory, transferHistoryStart, transferHistoryEnd]);
+
+  const filteredInboundHistory = useMemo(() => {
+    return inboundHistory.filter((item) => {
+      if (inboundSourceFilter !== 'all' && item.source !== inboundSourceFilter) return false;
+
+      if (!item?.time) return !inboundHistoryStart && !inboundHistoryEnd;
+      const created = new Date(item.time);
+      if (Number.isNaN(created.getTime())) return false;
+
+      const start = inboundHistoryStart ? new Date(`${inboundHistoryStart}T00:00:00`) : null;
+      const end = inboundHistoryEnd ? new Date(`${inboundHistoryEnd}T23:59:59`) : null;
+
+      if (start && created < start) return false;
+      if (end && created > end) return false;
+      return true;
+    });
+  }, [inboundHistory, inboundSourceFilter, inboundHistoryStart, inboundHistoryEnd]);
+
+  const getInboundSourceLabel = (source: string) => {
+    if (source === 'transfer_in') return '调货调入';
+    if (source === 'batch_restock') return '批量补库存';
+    if (source === 'excel_import') return 'Excel导入';
+    if (source === 'manual_add') return '手动入库';
+    return source || '-';
+  };
 
   const handleClearFilters = () => {
     setInboundStart('');
@@ -433,6 +548,15 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
       const ok = await updateProduct(existingProduct.id, updates);
       if (ok) {
+        appendInboundLogs([
+          {
+            storeId,
+            source: 'manual_add',
+            productName: name,
+            qty: stock,
+            note: '库存中心新增商品（合并到现有商品）'
+          }
+        ]);
         setAddFormData({ name: '', cost_price: '', stock: '', category_id: '' });
         setIsAddOpen(false);
       }
@@ -448,6 +572,15 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     });
 
     if (!error) {
+      appendInboundLogs([
+        {
+          storeId,
+          source: 'manual_add',
+          productName: name,
+          qty: stock,
+          note: '库存中心新增商品'
+        }
+      ]);
       setAddFormData({ name: '', cost_price: '', stock: '', category_id: '' });
       setIsAddOpen(false);
     }
@@ -691,6 +824,19 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
             </button>
 
             <button
+              onClick={async () => {
+                setInboundHistoryStart('');
+                setInboundHistoryEnd('');
+                setInboundSourceFilter('all');
+                setShowInboundHistory(true);
+                await loadInboundHistory();
+              }}
+              className="w-full h-11 px-4 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-emerald-100 shadow-sm text-sm"
+            >
+              <History className="w-5 h-5" /> 入库记录
+            </button>
+
+            <button
               onClick={() => setIsAddOpen(true)}
               className="w-full h-11 px-4 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
             >
@@ -705,7 +851,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
             </button>
 
             <ExcelImporter store={store} />
-            <StockBatchImporter store={store} />
+            <StockBatchImporter store={store} storeId={storeId} />
             </div>
           </div>
         </div>
@@ -1397,6 +1543,118 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
       )}
 
       {/* 调货记录 Modal */}
+      {showInboundHistory && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-5xl max-h-[90vh] overflow-hidden border border-slate-100 flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">入库记录（当前门店）</h3>
+              <button
+                onClick={() => setShowInboundHistory(false)}
+                className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-4">
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-1">开始日期</label>
+                  <input
+                    type="date"
+                    value={inboundHistoryStart}
+                    onChange={(e) => setInboundHistoryStart(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-1">结束日期</label>
+                  <input
+                    type="date"
+                    value={inboundHistoryEnd}
+                    onChange={(e) => setInboundHistoryEnd(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <label className="block text-[11px] text-slate-500 mb-1">来源</label>
+                  <select
+                    value={inboundSourceFilter}
+                    onChange={(e) => setInboundSourceFilter(e.target.value as typeof inboundSourceFilter)}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="all">全部来源</option>
+                    <option value="transfer_in">调货调入</option>
+                    <option value="batch_restock">批量补库存</option>
+                    <option value="excel_import">Excel导入</option>
+                    <option value="manual_add">手动入库</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <label className="block text-[11px] text-transparent mb-1">操作</label>
+                  <button
+                    onClick={async () => {
+                      await loadInboundHistory();
+                    }}
+                    className="w-full px-3 py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg text-sm font-semibold transition-all"
+                  >
+                    刷新记录
+                  </button>
+                </div>
+              </div>
+
+              {inboundHistoryLoading ? (
+                <div className="text-slate-400 text-sm">加载中...</div>
+              ) : inboundHistoryError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-600 text-sm">{inboundHistoryError}</div>
+              ) : filteredInboundHistory.length === 0 ? (
+                <div className="text-slate-400 text-sm">暂无入库记录</div>
+              ) : (
+                <>
+                  <div className="sm:hidden space-y-2">
+                    {filteredInboundHistory.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs space-y-1.5">
+                        <div className="font-semibold text-slate-800 break-words">{item.productName || '-'}</div>
+                        <div className="text-slate-600">来源：{getInboundSourceLabel(item.source)}</div>
+                        <div className="text-slate-600">数量：+{item.qty}</div>
+                        <div className="text-slate-600">备注：{item.note || '-'}</div>
+                        <div className="text-slate-500">{formatZhDateTime(item.time)}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                          <th className="px-4 py-3">时间</th>
+                          <th className="px-4 py-3">来源</th>
+                          <th className="px-4 py-3">商品</th>
+                          <th className="px-4 py-3">数量</th>
+                          <th className="px-4 py-3">备注</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredInboundHistory.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3 text-slate-500">{formatZhDateTime(item.time)}</td>
+                            <td className="px-4 py-3 text-slate-600">{getInboundSourceLabel(item.source)}</td>
+                            <td className="px-4 py-3 font-medium text-slate-700">{item.productName || '-'}</td>
+                            <td className="px-4 py-3 text-emerald-600 font-semibold">+{item.qty}</td>
+                            <td className="px-4 py-3 text-slate-500">{item.note || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 调货记录 Modal */}
       {showTransferHistory && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-end sm:items-center justify-center sm:p-4">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-4xl max-h-[90vh] overflow-hidden border border-slate-100 flex flex-col">
@@ -1434,6 +1692,8 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
               {transferHistoryLoading ? (
                 <div className="text-slate-400 text-sm">加载中...</div>
+              ) : transferHistoryError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-600 text-sm">{transferHistoryError}</div>
               ) : filteredTransferHistory.length === 0 ? (
                 <div className="text-slate-400 text-sm">暂无调货记录</div>
               ) : (
