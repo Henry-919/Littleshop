@@ -1,4 +1,4 @@
-export type InboundLogSource = 'manual_add' | 'excel_import' | 'batch_restock';
+export type InboundLogSource = 'manual_add' | 'excel_import' | 'batch_restock' | 'return';
 
 export type InboundLogRecord = {
   id: string;
@@ -31,7 +31,7 @@ const normalizeRecord = (item: any): InboundLogRecord | null => {
   if (!item || typeof item !== 'object') return null;
 
   const source = String(item.source || '') as InboundLogSource;
-  if (!['manual_add', 'excel_import', 'batch_restock'].includes(source)) return null;
+  if (!['manual_add', 'excel_import', 'batch_restock', 'return'].includes(source)) return null;
 
   const productName = String(item.productName || '').trim();
   const qty = Number(item.qty || 0);

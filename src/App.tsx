@@ -9,6 +9,7 @@ import { SalesHistory } from './components/SalesHistory';
 import { Analytics } from './components/Analytics';
 import { Categories } from './components/Categories';
 import { Stores } from './components/Stores';
+import { Returns } from './components/Returns';
 import { Menu } from 'lucide-react';
 
 function App() {
@@ -52,6 +53,8 @@ function App() {
         return <POS store={store} />;
       case 'inventory':
         return <Inventory store={store} storeId={storeId} />;
+      case 'returns':
+        return <Returns store={store} storeId={storeId} />;
       case 'categories':
         return <Categories store={store} storeId={storeId} />;
       case 'stores':
@@ -92,6 +95,7 @@ function App() {
               {activeTab === 'dashboard' && '经营看板'}
               {activeTab === 'pos' && '收银终端'}
               {activeTab === 'inventory' && '库存管理'}
+              {activeTab === 'returns' && '退货管理'}
               {activeTab === 'categories' && '商品分类'}
               {activeTab === 'stores' && '门店管理'}
               {activeTab === 'history' && '销售流水'}

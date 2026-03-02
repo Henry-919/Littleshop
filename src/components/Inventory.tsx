@@ -152,7 +152,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   const [inboundHistory, setInboundHistory] = useState<any[]>([]);
   const [inboundHistoryStart, setInboundHistoryStart] = useState('');
   const [inboundHistoryEnd, setInboundHistoryEnd] = useState('');
-  const [inboundSourceFilter, setInboundSourceFilter] = useState<'all' | 'transfer_in' | 'batch_restock' | 'excel_import' | 'manual_add'>('all');
+  const [inboundSourceFilter, setInboundSourceFilter] = useState<'all' | 'transfer_in' | 'batch_restock' | 'excel_import' | 'manual_add' | 'return'>('all');
   const [transferForm, setTransferForm] = useState({
     productId: '',
     targetStoreId: '',
@@ -348,6 +348,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     if (source === 'batch_restock') return '批量补库存';
     if (source === 'excel_import') return 'Excel导入';
     if (source === 'manual_add') return '手动入库';
+    if (source === 'return') return '退货入库';
     return source || '-';
   };
 
@@ -1588,6 +1589,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                     <option value="batch_restock">批量补库存</option>
                     <option value="excel_import">Excel导入</option>
                     <option value="manual_add">手动入库</option>
+                    <option value="return">退货入库</option>
                   </select>
                 </div>
                 <div className="sm:col-span-2 lg:col-span-1">
