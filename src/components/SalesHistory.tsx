@@ -4,6 +4,8 @@ import { Trash2, History, ReceiptText, User, X, Pencil, Check, XCircle, Search, 
 import { supabase } from '../lib/supabase';
 import { formatZhDateTime, formatZhDateTimeShort, parseAppDate, toDateInputValue } from '../lib/date';
 import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
+import { loadMergedReturns, subscribeReturnsChanged, type ReturnRecord } from '../lib/returns';
+import { consumeSalesHistoryJumpPayload } from '../lib/navigation';
 
 type EditingState = {
   saleId: string;
@@ -13,28 +15,6 @@ type EditingState = {
   totalAmount: string;
   salesperson: string;
   date: string;
-};
-
-type ReturnRecord = {
-  id?: string;
-  product_model?: string;
-  invoice_no?: string;
-  amount?: number | string;
-  return_date?: string;
-  created_at?: string;
-};
-
-const loadLocalReturnRecords = (storeId?: string): ReturnRecord[] => {
-  if (typeof window === 'undefined' || !storeId) return [];
-  try {
-    const raw = window.localStorage.getItem(`littleshop_return_records_${storeId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch {
-    return [];
-  }
 };
 
 export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
@@ -49,6 +29,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   const [salespersonFilter, setSalespersonFilter] = useState<string>('all');
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
   const [returnRecords, setReturnRecords] = useState<ReturnRecord[]>([]);
+  const [highlightedSaleId, setHighlightedSaleId] = useState<string | null>(null);
 
   const getProductName = (id: string) => {
     return products.find(p => p.id === id)?.name || '未知商品';
@@ -198,29 +179,72 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   }, [sales]);
 
   useEffect(() => {
+    const payload = consumeSalesHistoryJumpPayload();
+    if (!payload) return;
+    if (payload.storeId && storeId && payload.storeId !== storeId) return;
+
+    if (payload.keyword) {
+      setSearchTerm(payload.keyword);
+    }
+
+    if (payload.salesperson && salespersonOptions.includes(payload.salesperson)) {
+      setSalespersonFilter(payload.salesperson);
+    } else {
+      setSalespersonFilter('all');
+    }
+
+    if (payload.saleId) {
+      setHighlightedSaleId(payload.saleId);
+      window.setTimeout(() => {
+        setHighlightedSaleId((prev) => (prev === payload.saleId ? null : prev));
+      }, 3000);
+    }
+
+    setDateFilter('all');
+  }, [storeId, salespersonOptions]);
+
+  useEffect(() => {
+    let alive = true;
+
     const loadReturns = async () => {
+      if (!alive) return;
       if (!storeId) {
         setReturnRecords([]);
         return;
       }
 
-      const { data, error } = await supabase
-        .from('returns')
-        .select('id, product_model, invoice_no, amount, return_date, created_at')
-        .eq('store_id', storeId)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false })
-        .limit(2000);
-
-      if (!error) {
-        setReturnRecords(data || []);
-        return;
-      }
-
-      setReturnRecords(loadLocalReturnRecords(storeId));
+      const merged = await loadMergedReturns(storeId);
+      if (!alive) return;
+      setReturnRecords(merged);
     };
 
     loadReturns();
+
+    const unsubscribeEvent = subscribeReturnsChanged((changedStoreId) => {
+      if (!storeId) return;
+      if (changedStoreId && changedStoreId !== storeId) return;
+      loadReturns();
+    });
+
+    const channel = storeId
+      ? supabase
+          .channel(`returns-history-${storeId}`)
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'returns',
+            filter: `store_id=eq.${storeId}`
+          }, () => {
+            loadReturns();
+          })
+          .subscribe()
+      : null;
+
+    return () => {
+      alive = false;
+      unsubscribeEvent();
+      if (channel) supabase.removeChannel(channel);
+    };
   }, [storeId]);
 
   const filteredSales = useMemo(() => {
@@ -261,9 +285,9 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
     return returnRecords.filter((item) => {
-      const dateValue = parseAppDate(item.return_date || item.created_at)?.getTime() || 0;
-      const productModel = String(item.product_model || (item as any).productModel || '').toLowerCase();
-      const invoiceNo = String(item.invoice_no || (item as any).invoiceNo || '').toLowerCase();
+      const dateValue = parseAppDate(item.returnDate || item.createdAt)?.getTime() || 0;
+      const productModel = String(item.productModel || '').toLowerCase();
+      const invoiceNo = String(item.invoiceNo || '').toLowerCase();
 
       const matchesSearch = !term || productModel.includes(term) || invoiceNo.includes(term);
 
@@ -311,6 +335,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
 
   const renderMobileCard = (sale: any) => {
     const isEditing = editing?.saleId === sale.id;
+    const isHighlighted = highlightedSaleId === sale.id;
     const totalAmount = sale.totalAmount || 0;
     const date = sale.date;
 
@@ -428,7 +453,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
     }
 
     return (
-      <div key={sale.id} className="bg-white border border-slate-100 rounded-xl p-3 flex items-center gap-3">
+      <div key={sale.id} className={`rounded-xl p-3 flex items-center gap-3 transition-all ${isHighlighted ? 'bg-amber-50 border border-amber-300 ring-2 ring-amber-200' : 'bg-white border border-slate-100'}`}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-slate-800 text-sm truncate">{getProductName(sale.productId)}</span>
@@ -465,6 +490,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
 
   const renderDesktopRow = (sale: any) => {
     const isEditing = editing?.saleId === sale.id;
+    const isHighlighted = highlightedSaleId === sale.id;
     const totalAmount = sale.totalAmount || 0;
     const date = sale.date;
 
@@ -582,7 +608,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
     }
 
     return (
-      <tr key={sale.id} className="hover:bg-slate-50/50 transition-colors group">
+      <tr key={sale.id} className={`transition-colors group ${isHighlighted ? 'bg-amber-50/80 ring-1 ring-inset ring-amber-300' : 'hover:bg-slate-50/50'}`}>
         <td className="px-6 py-4 text-slate-500 whitespace-nowrap text-sm">
           {formatZhDateTimeShort(date)}
         </td>

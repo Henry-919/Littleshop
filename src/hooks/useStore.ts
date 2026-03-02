@@ -154,6 +154,8 @@ export function useStore(storeId?: string) {
 
   const addSale = async (productId: string, quantity: number, salesperson: string, date?: string, overrideTotalAmount?: number) => {
     if (!storeId) return false;
+    if (!Number.isInteger(quantity) || quantity <= 0) return false;
+    const normalizedSalesperson = String(salesperson || '').trim() || '系统默认';
     let product = products.find(p => p.id === productId);
 
     if (!product) {
@@ -185,15 +187,16 @@ export function useStore(storeId?: string) {
     const newStock = (Number(product.stock) || 0) - quantity;
     const saleDate = normalizeSaleDate(date);
     // 优先使用传入的实际售价（发票识别价格），否则用商品标价
-    const finalTotalAmount = (overrideTotalAmount !== undefined && overrideTotalAmount > 0)
+    const finalTotalAmountRaw = (overrideTotalAmount !== undefined && overrideTotalAmount > 0)
       ? overrideTotalAmount
       : (Number(product.price) || 0) * quantity;
+    const finalTotalAmount = Number(finalTotalAmountRaw.toFixed(2));
 
     const { data: saleData, error: saleError } = await supabase.from('sales').insert([{
       product_id: productId,
       quantity,
       total_amount: finalTotalAmount,
-      salesperson,
+      salesperson: normalizedSalesperson,
       date: saleDate,
       store_id: storeId
     }]).select().single();

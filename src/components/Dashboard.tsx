@@ -4,29 +4,12 @@ import { TrendingUp, Users, ShoppingBag, AlertTriangle, PackageSearch, Medal } f
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import { parseAppDate } from '../lib/date';
-
-type ReturnAmountRecord = {
-  id?: string;
-  amount?: number | string;
-  return_date?: string;
-  created_at?: string;
-};
-
-const loadLocalReturnRecords = (storeId?: string): ReturnAmountRecord[] => {
-  if (typeof window === 'undefined' || !storeId) return [];
-  try {
-    const raw = window.localStorage.getItem(`littleshop_return_records_${storeId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
+import { loadMergedReturns, subscribeReturnsChanged, type ReturnRecord } from '../lib/returns';
+import { emitNavigate, setSalesHistoryJumpPayload } from '../lib/navigation';
 
 export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   const { sales, products, categories } = store;
-  const [returnRecords, setReturnRecords] = useState<ReturnAmountRecord[]>([]);
+  const [returnRecords, setReturnRecords] = useState<ReturnRecord[]>([]);
 
   type PaymentInput = { card: string; cash: string; transfer: string };
 
@@ -76,29 +59,47 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
   }, [sales, products, returnRecords]);
 
   useEffect(() => {
+    let alive = true;
+
     const loadReturns = async () => {
+      if (!alive) return;
       if (!storeId) {
         setReturnRecords([]);
         return;
       }
 
-      const { data, error } = await supabase
-        .from('returns')
-        .select('id, amount, return_date, created_at')
-        .eq('store_id', storeId)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false })
-        .limit(2000);
-
-      if (!error) {
-        setReturnRecords(data || []);
-        return;
-      }
-
-      setReturnRecords(loadLocalReturnRecords(storeId));
+      const merged = await loadMergedReturns(storeId);
+      if (!alive) return;
+      setReturnRecords(merged);
     };
 
     loadReturns();
+
+    const unsubscribeEvent = subscribeReturnsChanged((changedStoreId) => {
+      if (!storeId) return;
+      if (changedStoreId && changedStoreId !== storeId) return;
+      loadReturns();
+    });
+
+    const channel = storeId
+      ? supabase
+          .channel(`returns-dashboard-${storeId}`)
+          .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'returns',
+            filter: `store_id=eq.${storeId}`
+          }, () => {
+            loadReturns();
+          })
+          .subscribe()
+      : null;
+
+    return () => {
+      alive = false;
+      unsubscribeEvent();
+      if (channel) supabase.removeChannel(channel);
+    };
   }, [storeId]);
 
   const [lowStockList, setLowStockList] = useState<any[]>([]);
@@ -168,9 +169,9 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
     }
 
     for (const item of returnRecords) {
-      const date = parseAppDate(item.return_date || item.created_at);
+      const date = parseAppDate(item.returnDate || item.createdAt);
       if (!date) continue;
-      const amount = Number(item.amount) || 0;
+      const amount = Number(item.amount || 0);
       if (amount <= 0) continue;
       const monthKey = toMonthKey(date);
       const dayKey = toDayKey(date);
@@ -290,6 +291,61 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
     return `${year}年${month}月`;
   };
 
+  const todayMonitor = useMemo(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const end = start + 24 * 60 * 60 * 1000;
+
+    const todaySales = sales.reduce((sum, sale) => {
+      const time = parseAppDate(sale.date)?.getTime() || 0;
+      if (!time || time < start || time >= end) return sum;
+      return sum + (Number(sale.totalAmount) || 0);
+    }, 0);
+
+    const todayReturns = returnRecords.reduce((sum, item) => {
+      const time = parseAppDate(item.returnDate || item.createdAt)?.getTime() || 0;
+      if (!time || time < start || time >= end) return sum;
+      return sum + (Number(item.amount) || 0);
+    }, 0);
+
+    const systemNet = todaySales - todayReturns;
+    const dayKey = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const payment = paymentInputs[dayKey] || { card: '', cash: '', transfer: '' };
+    const actual = (Number(payment.card) || 0) + (Number(payment.cash) || 0) + (Number(payment.transfer) || 0);
+    const diff = Number((systemNet - actual).toFixed(2));
+
+    return { systemNet, actual, diff, hasInput: actual > 0 };
+  }, [sales, returnRecords, paymentInputs]);
+
+  const abnormalSales = useMemo(() => {
+    const rows = sales
+      .map((sale) => {
+        const product = products.find((p) => p.id === sale.productId);
+        const qty = Number(sale.quantity) || 0;
+        const amount = Number(sale.totalAmount) || 0;
+        const standardPrice = Number(product?.price) || 0;
+        if (qty <= 0 || amount <= 0 || standardPrice <= 0) return null;
+        const unitPrice = amount / qty;
+        const deviation = Math.abs(unitPrice - standardPrice) / standardPrice;
+        if (deviation < 0.3) return null;
+
+        return {
+          id: sale.id,
+          date: sale.date,
+          productName: product?.name || '未知商品',
+          salesperson: sale.salesperson || '系统默认',
+          qty,
+          unitPrice,
+          standardPrice,
+          deviation
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => !!item)
+      .sort((a, b) => (parseAppDate(b.date)?.getTime() || 0) - (parseAppDate(a.date)?.getTime() || 0));
+
+    return rows.slice(0, 8);
+  }, [sales, products]);
+
   return (
     <div className="space-y-4 sm:space-y-6 pb-10">
       {/* 欢迎头部 */}
@@ -319,6 +375,78 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
           <div className="min-w-0">
             <p className="text-xs sm:text-sm font-medium text-slate-500">累计订单</p>
             <p className="text-lg sm:text-3xl font-black text-slate-900">{stats.totalOrders} <span className="text-[10px] sm:text-sm font-normal text-slate-400">单</span></p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-100">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-slate-900 text-sm sm:text-base">今日差异监控</h3>
+            <span className={`text-xs font-bold px-2 py-1 rounded-full ${Math.abs(todayMonitor.diff) < 0.01 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+              {Math.abs(todayMonitor.diff) < 0.01 ? '已平衡' : '需复核'}
+            </span>
+          </div>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+              <p className="text-xs text-slate-500">系统净额</p>
+              <p className="text-lg font-black text-slate-900">￥{todayMonitor.systemNet.toFixed(2)}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+              <p className="text-xs text-slate-500">实收合计</p>
+              <p className="text-lg font-black text-slate-900">￥{todayMonitor.actual.toFixed(2)}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+              <p className="text-xs text-slate-500">差异</p>
+              <p className={`text-lg font-black ${Math.abs(todayMonitor.diff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                ￥{todayMonitor.diff.toFixed(2)}
+              </p>
+            </div>
+          </div>
+          {!todayMonitor.hasInput && (
+            <p className="mt-3 text-xs text-slate-400">尚未录入今日实收，差异监控将以 0 为基准。</p>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <h3 className="font-bold text-slate-900 text-sm sm:text-base">异常单价清单（偏差≥30%）</h3>
+            <span className="text-xs text-slate-400">最近 {abnormalSales.length} 条</span>
+          </div>
+          <div className="p-3 sm:p-4">
+            {abnormalSales.length === 0 ? (
+              <div className="text-sm text-slate-400 text-center py-6">暂无异常单价记录</div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {abnormalSales.map((item) => (
+                  <div key={item.id} className="rounded-xl border border-rose-100 bg-rose-50/40 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-slate-800 truncate">{item.productName}</p>
+                      <span className="text-xs font-bold text-rose-600">偏差 {(item.deviation * 100).toFixed(0)}%</span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">{(parseAppDate(item.date) || new Date()).toLocaleDateString('zh-CN')} · {item.salesperson}</p>
+                    <p className="text-xs text-slate-600 mt-1">标准价 ￥{item.standardPrice.toFixed(2)} · 实际单价 ￥{item.unitPrice.toFixed(2)} · 数量 {item.qty}</p>
+                    <div className="mt-2">
+                      <button
+                        onClick={() => {
+                          setSalesHistoryJumpPayload({
+                            storeId,
+                            keyword: item.productName,
+                            salesperson: item.salesperson,
+                            date: item.date,
+                            saleId: item.id
+                          });
+                          emitNavigate({ tab: 'history' });
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-100 transition-all"
+                      >
+                        去销售流水定位
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

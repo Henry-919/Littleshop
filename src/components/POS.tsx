@@ -22,6 +22,8 @@ type PosEntryRecord = {
 const POS_ENTRY_RECORDS_KEY = 'pos_entry_records_v1';
 const POS_ENTRY_RECORDS_LIMIT = 120;
 
+const normalizeText = (value: string) => String(value || '').trim().toLowerCase();
+
 export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   const { products, categories, addSale } = store;
   
@@ -63,7 +65,8 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
 
   // 1. 自动匹配：根据输入内容筛选已有商品
   const matchedProduct = useMemo(() => {
-    return products.find(p => p.name.toLowerCase() === searchTerm.toLowerCase()) || 
+    const normalized = normalizeText(searchTerm);
+    return products.find(p => normalizeText(p.name) === normalized) || 
            products.find(p => p.id === selectedProductId);
   }, [searchTerm, selectedProductId, products]);
 
@@ -73,11 +76,14 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!salesperson) {
+    const salespersonName = salesperson.trim();
+    const normalizedSearchTerm = searchTerm.trim();
+
+    if (!salespersonName) {
       setFeedback({ type: 'error', text: '请填写销售人员姓名。' });
       return;
     }
-    if (quantity <= 0) {
+    if (!Number.isInteger(quantity) || quantity <= 0) {
       setFeedback({ type: 'error', text: '数量必须大于 0。' });
       return;
     }
@@ -86,10 +92,42 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
       return;
     }
 
+    if (!normalizedSearchTerm) {
+      setFeedback({ type: 'error', text: '请填写商品名称。' });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       let finalProductId = matchedProduct?.id;
       const salePrice = parseFloat(manualPrice);
+
+      if (!isNewProduct && matchedProduct) {
+        const basePrice = Number(matchedProduct.price) || 0;
+        if (basePrice > 0) {
+          const deviation = Math.abs(salePrice - basePrice) / basePrice;
+          if (deviation >= 0.3) {
+            const confirmed = window.confirm(
+              `当前销售单价 ￥${salePrice.toFixed(2)} 与商品标价 ￥${basePrice.toFixed(2)} 偏差较大，确认继续吗？`
+            );
+            if (!confirmed) {
+              setIsSubmitting(false);
+              return;
+            }
+          }
+        }
+
+        const currentStock = Number(matchedProduct.stock) || 0;
+        if (quantity > currentStock) {
+          const confirmed = window.confirm(
+            `当前库存 ${currentStock}，本次售卖数量 ${quantity}，将形成负库存，确认继续吗？`
+          );
+          if (!confirmed) {
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
 
       // 🚀 核心逻辑：如果是新商品，先执行创建
       if (isNewProduct) {
@@ -104,7 +142,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
 
         // 先把新商品插入数据库，库存设为初始库存数
         const { data: newProd, error } = await store.addProduct({
-          name: searchTerm,
+          name: normalizedSearchTerm,
           price: salePrice,
           stock: newInitStock,
           category_id: selectedCategoryId || undefined,
@@ -121,8 +159,8 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
       if (!finalProductId) throw new Error("无法获取商品ID");
 
       // 执行售卖记录录入，使用手动输入的单价计算总金额
-      const overrideTotal = salePrice > 0 ? salePrice * quantity : undefined;
-      const success = await addSale(finalProductId, quantity, salesperson, saleDate || undefined, overrideTotal);
+      const overrideTotal = salePrice > 0 ? Number((salePrice * quantity).toFixed(2)) : undefined;
+      const success = await addSale(finalProductId, quantity, salespersonName, saleDate || undefined, overrideTotal);
       
       if (success) {
         const lastOrder = entryRecords.length ? entryRecords[entryRecords.length - 1].inputOrder : 0;
@@ -130,11 +168,11 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
           id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           inputOrder: lastOrder + 1,
           createdAt: new Date().toISOString(),
-          productName: searchTerm,
+          productName: normalizedSearchTerm,
           quantity,
           saleUnitPrice: salePrice,
           totalAmount: Number((salePrice * quantity).toFixed(2)),
-          salesperson,
+          salesperson: salespersonName,
           saleDate: saleDate || undefined,
           isNewProduct,
           costPrice: isNewProduct ? (parseFloat(costPrice) || 0) : undefined,
@@ -146,7 +184,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
 
         setFeedback({
           type: 'success',
-          text: isNewProduct ? `已创建新商品“${searchTerm}”并完成售卖。` : '销售记录已成功添加。'
+          text: isNewProduct ? `已创建新商品“${normalizedSearchTerm}”并完成售卖。` : '销售记录已成功添加。'
         });
         // 重置表单（不重置销售员）
         setSearchTerm('');
@@ -221,7 +259,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
-                const found = products.find(p => p.name === e.target.value);
+                const found = products.find(p => normalizeText(p.name) === normalizeText(e.target.value));
                 if (found) {
                   setSelectedProductId(found.id);
                   setManualPrice('');

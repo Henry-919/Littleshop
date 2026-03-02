@@ -11,6 +11,7 @@ import { Categories } from './components/Categories';
 import { Stores } from './components/Stores';
 import { Returns } from './components/Returns';
 import { Menu } from 'lucide-react';
+import { subscribeNavigate } from './lib/navigation';
 
 function App() {
   const [stores, setStores] = useState<{ id: string; name: string }[]>([]);
@@ -43,6 +44,14 @@ function App() {
   useEffect(() => {
     loadStores();
   }, [loadStores]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeNavigate(({ tab }) => {
+      setActiveTab(tab);
+      setMobileMenuOpen(false);
+    });
+    return unsubscribe;
+  }, []);
 
   // 根据侧边栏选择渲染对应的页面组件
   const renderContent = () => {

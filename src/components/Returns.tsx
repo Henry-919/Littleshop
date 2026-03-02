@@ -1,41 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, Search } from 'lucide-react';
 import { useStore } from '../hooks/useStore';
 import { formatZhDateTime } from '../lib/date';
 import { appendInboundLogs } from '../lib/inboundLog';
 import { supabase } from '../lib/supabase';
-
-type ReturnRecord = {
-  id: string;
-  productModel: string;
-  invoiceNo: string;
-  amount: number;
-  quantity: number;
-  returnDate: string;
-  createdAt: string;
-};
-
-const getLocalKey = (storeId?: string) => `littleshop_return_records_${storeId || 'unknown'}`;
-
-const loadLocalRecords = (storeId?: string): ReturnRecord[] => {
-  if (typeof window === 'undefined' || !storeId) return [];
-  try {
-    const raw = window.localStorage.getItem(getLocalKey(storeId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(Boolean).slice(0, 500);
-  } catch {
-    return [];
-  }
-};
-
-const saveLocalRecords = (storeId: string, records: ReturnRecord[]) => {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(getLocalKey(storeId), JSON.stringify(records.slice(0, 500)));
-  } catch {}
-};
+import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
+import { emitReturnsChanged, loadLocalReturns, saveLocalReturns, type ReturnRecord } from '../lib/returns';
 
 const normalizeModel = (value: string) =>
   String(value || '')
@@ -62,10 +32,16 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
   const [returnDate, setReturnDate] = useState(today());
   const [submitting, setSubmitting] = useState(false);
   const [keyword, setKeyword] = useState('');
-  const [records, setRecords] = useState<ReturnRecord[]>(() => loadLocalRecords(storeId));
+  const [records, setRecords] = useState<ReturnRecord[]>(() => loadLocalReturns(storeId));
+  const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
+  const productModelInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setRecords(loadLocalRecords(storeId));
+    setRecords(loadLocalReturns(storeId));
+  }, [storeId]);
+
+  useEffect(() => {
+    productModelInputRef.current?.focus();
   }, [storeId]);
 
   const filteredRecords = useMemo(() => {
@@ -98,12 +74,14 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
+
     if (!storeId) {
-      alert('请先选择门店');
+      setFeedback({ type: 'error', text: '请先选择门店。' });
       return;
     }
     if (!updateProduct) {
-      alert('库存更新功能未就绪');
+      setFeedback({ type: 'error', text: '库存更新功能未就绪。' });
       return;
     }
 
@@ -112,16 +90,16 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
     const qty = Number(quantity);
     const money = Number(amount);
 
-    if (!modelText) return alert('请填写产品型号');
-    if (!billNo) return alert('请填写发票单号');
-    if (!Number.isFinite(money) || money < 0) return alert('金额格式不正确');
-    if (!Number.isInteger(qty)) return alert('数量必须为整数');
-    if (!Number.isFinite(qty) || qty <= 0) return alert('数量必须大于 0');
-    if (!returnDate) return alert('请选择退货日期');
+    if (!modelText) return setFeedback({ type: 'error', text: '请填写产品型号。' });
+    if (!billNo) return setFeedback({ type: 'error', text: '请填写发票单号。' });
+    if (!Number.isFinite(money) || money < 0) return setFeedback({ type: 'error', text: '金额格式不正确。' });
+    if (!Number.isInteger(qty)) return setFeedback({ type: 'error', text: '数量必须为整数。' });
+    if (!Number.isFinite(qty) || qty <= 0) return setFeedback({ type: 'error', text: '数量必须大于 0。' });
+    if (!returnDate) return setFeedback({ type: 'error', text: '请选择退货日期。' });
 
     const matched = matchProduct(modelText);
     if (!matched) {
-      alert('未匹配到商品型号，请输入更准确的型号名称');
+      setFeedback({ type: 'error', text: '未匹配到商品型号，请输入更准确的型号名称。' });
       return;
     }
 
@@ -131,7 +109,7 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
     setSubmitting(false);
 
     if (!ok) {
-      alert('退货入库失败，请稍后重试');
+      setFeedback({ type: 'error', text: '退货入库失败，请稍后重试。' });
       return;
     }
 
@@ -147,7 +125,7 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
 
     const next = [nextRecord, ...records].slice(0, 500);
     setRecords(next);
-    saveLocalRecords(storeId, next);
+    saveLocalReturns(storeId, next);
 
     appendInboundLogs([
       {
@@ -176,8 +154,10 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
       ]);
     if (writeReturnError && writeReturnError.code !== '42P01') {
       console.warn('Write returns log failed:', writeReturnError.message);
-      alert(`退货已入库，但退货记录写入失败：${writeReturnError.message}`);
+      setFeedback({ type: 'error', text: `退货已入库，但退货记录写入失败：${writeReturnError.message}` });
     }
+
+    emitReturnsChanged(storeId);
 
     setProductModel('');
     setInvoiceNo('');
@@ -185,12 +165,24 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
     setQuantity('1');
     setReturnDate(today());
 
-    alert('退货已登记，库存已累加');
+    setTimeout(() => {
+      productModelInputRef.current?.focus();
+      productModelInputRef.current?.select();
+    }, 0);
+
+    setFeedback({ type: 'success', text: '退货已登记，库存已累加。' });
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleSubmit();
   };
 
   return (
     <div className="space-y-5 animate-in fade-in duration-500">
-      <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+      <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
+
+      <form onSubmit={handleFormSubmit} className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-200">
             <RotateCcw className="w-6 h-6" />
@@ -205,6 +197,7 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
           <div className="xl:col-span-2">
             <label className="block text-xs text-slate-500 mb-1">产品型号</label>
             <input
+              ref={productModelInputRef}
               list="return-product-model-options"
               value={productModel}
               onChange={(e) => setProductModel(e.target.value)}
@@ -266,14 +259,14 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
 
         <div className="flex justify-end">
           <button
-            onClick={handleSubmit}
+            type="submit"
             disabled={submitting}
             className="h-11 px-5 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm disabled:opacity-60"
           >
             {submitting ? '处理中...' : '提交退货并入库'}
           </button>
         </div>
-      </div>
+      </form>
 
       <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
