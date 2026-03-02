@@ -17,6 +17,7 @@ type PosEntryRecord = {
   isNewProduct: boolean;
   costPrice?: number;
   inventoryInput?: number;
+  abnormalPriceNote?: string;
 };
 
 const POS_ENTRY_RECORDS_KEY = 'pos_entry_records_v1';
@@ -34,6 +35,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   const [salesperson, setSalesperson] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [manualPrice, setManualPrice] = useState<string>('');
+  const [abnormalPriceNote, setAbnormalPriceNote] = useState('');
   const [costPrice, setCostPrice] = useState<string>('');
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [initStock, setInitStock] = useState<string>('');
@@ -73,6 +75,17 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   // 判断是否为"全新商品"
   const isNewProduct = searchTerm.length > 0 && !matchedProduct;
 
+  const priceDeviation = useMemo(() => {
+    if (!matchedProduct || isNewProduct) return 0;
+    const basePrice = Number(matchedProduct.price) || 0;
+    const salePrice = parseFloat(manualPrice);
+    if (!Number.isFinite(basePrice) || basePrice <= 0) return 0;
+    if (!Number.isFinite(salePrice) || salePrice <= 0) return 0;
+    return Math.abs(salePrice - basePrice) / basePrice;
+  }, [matchedProduct, isNewProduct, manualPrice]);
+
+  const needsAbnormalNote = !!matchedProduct && !isNewProduct && priceDeviation >= 0.3;
+
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -89,6 +102,11 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
     }
     if (!manualPrice || parseFloat(manualPrice) <= 0) {
       setFeedback({ type: 'error', text: '请输入有效的销售单价。' });
+      return;
+    }
+
+    if (needsAbnormalNote && !abnormalPriceNote.trim()) {
+      setFeedback({ type: 'error', text: '当前单价偏差较大，请填写异常备注后再提交。' });
       return;
     }
 
@@ -177,6 +195,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
           isNewProduct,
           costPrice: isNewProduct ? (parseFloat(costPrice) || 0) : undefined,
           inventoryInput: isNewProduct ? (parseInt(initStock, 10) || 0) : undefined,
+          abnormalPriceNote: needsAbnormalNote ? abnormalPriceNote.trim() : undefined,
         };
 
         const nextRecords = [...entryRecords, record].slice(-POS_ENTRY_RECORDS_LIMIT);
@@ -191,6 +210,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
         setSelectedProductId('');
         setQuantity(1);
         setManualPrice('');
+        setAbnormalPriceNote('');
         setCostPrice('');
         setInitStock('');
         setSelectedCategoryId('');
@@ -380,6 +400,21 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
             </div>
           )}
 
+          {needsAbnormalNote && (
+            <div className="p-3 bg-rose-50/60 border border-rose-200 rounded-xl space-y-2">
+              <div className="text-xs font-bold text-rose-700">
+                当前售价与标价偏差 {(priceDeviation * 100).toFixed(0)}%，请填写备注
+              </div>
+              <textarea
+                value={abnormalPriceNote}
+                onChange={(e) => setAbnormalPriceNote(e.target.value)}
+                rows={2}
+                placeholder="例如：临期清仓、会员折扣、活动价、协商价..."
+                className="w-full p-2.5 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-300 outline-none text-sm bg-white"
+              />
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={isSubmitting || !searchTerm}
@@ -426,6 +461,11 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                   {item.isNewProduct && (
                     <div className="mt-1 text-[11px] text-amber-700">
                       新商品入库：成本价 ￥{Number(item.costPrice || 0).toFixed(2)} · 初始库存 {item.inventoryInput ?? 0}
+                    </div>
+                  )}
+                  {!!item.abnormalPriceNote && (
+                    <div className="mt-1 text-[11px] text-rose-700">
+                      单价异常备注：{item.abnormalPriceNote}
                     </div>
                   )}
                 </div>
