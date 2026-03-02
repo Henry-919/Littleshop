@@ -115,6 +115,7 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
     if (!modelText) return alert('请填写产品型号');
     if (!billNo) return alert('请填写发票单号');
     if (!Number.isFinite(money) || money < 0) return alert('金额格式不正确');
+    if (!Number.isInteger(qty)) return alert('数量必须为整数');
     if (!Number.isFinite(qty) || qty <= 0) return alert('数量必须大于 0');
     if (!returnDate) return alert('请选择退货日期');
 
@@ -159,7 +160,7 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
       }
     ]);
 
-    supabase
+    const { error: writeReturnError } = await supabase
       .from('returns')
       .insert([
         {
@@ -172,12 +173,11 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
           return_date: returnDate,
           created_at: new Date().toISOString()
         }
-      ])
-      .then(({ error }) => {
-        if (error) {
-          console.warn('Write returns log failed:', error.message);
-        }
-      });
+      ]);
+    if (writeReturnError && writeReturnError.code !== '42P01') {
+      console.warn('Write returns log failed:', writeReturnError.message);
+      alert(`退货已入库，但退货记录写入失败：${writeReturnError.message}`);
+    }
 
     setProductModel('');
     setInvoiceNo('');

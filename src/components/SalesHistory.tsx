@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useStore } from '../hooks/useStore';
 import { Trash2, History, ReceiptText, User, X, Pencil, Check, XCircle, Search, Filter } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -15,6 +15,28 @@ type EditingState = {
   date: string;
 };
 
+type ReturnRecord = {
+  id?: string;
+  product_model?: string;
+  invoice_no?: string;
+  amount?: number | string;
+  return_date?: string;
+  created_at?: string;
+};
+
+const loadLocalReturnRecords = (storeId?: string): ReturnRecord[] => {
+  if (typeof window === 'undefined' || !storeId) return [];
+  try {
+    const raw = window.localStorage.getItem(`littleshop_return_records_${storeId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
+  } catch {
+    return [];
+  }
+};
+
 export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   const { sales, products, deleteSale, updateSale } = store;
   const [showDeleted, setShowDeleted] = useState(false);
@@ -26,6 +48,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7d' | 'month'>('all');
   const [salespersonFilter, setSalespersonFilter] = useState<string>('all');
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
+  const [returnRecords, setReturnRecords] = useState<ReturnRecord[]>([]);
 
   const getProductName = (id: string) => {
     return products.find(p => p.id === id)?.name || '未知商品';
@@ -174,6 +197,32 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
     return names;
   }, [sales]);
 
+  useEffect(() => {
+    const loadReturns = async () => {
+      if (!storeId) {
+        setReturnRecords([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('returns')
+        .select('id, product_model, invoice_no, amount, return_date, created_at')
+        .eq('store_id', storeId)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(2000);
+
+      if (!error) {
+        setReturnRecords(data || []);
+        return;
+      }
+
+      setReturnRecords(loadLocalReturnRecords(storeId));
+    };
+
+    loadReturns();
+  }, [storeId]);
+
   const filteredSales = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     const now = new Date();
@@ -203,6 +252,47 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
       return matchesSearch && matchesSalesperson && matchesDate;
     });
   }, [sortedSales, searchTerm, salespersonFilter, dateFilter]);
+
+  const filteredReturnRecords = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const sevenDaysAgo = todayStart - 6 * 24 * 60 * 60 * 1000;
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+    return returnRecords.filter((item) => {
+      const dateValue = parseAppDate(item.return_date || item.created_at)?.getTime() || 0;
+      const productModel = String(item.product_model || (item as any).productModel || '').toLowerCase();
+      const invoiceNo = String(item.invoice_no || (item as any).invoiceNo || '').toLowerCase();
+
+      const matchesSearch = !term || productModel.includes(term) || invoiceNo.includes(term);
+
+      const matchesDate = (() => {
+        if (dateFilter === 'all') return true;
+        if (!dateValue || Number.isNaN(dateValue)) return false;
+        if (dateFilter === 'today') return dateValue >= todayStart;
+        if (dateFilter === '7d') return dateValue >= sevenDaysAgo;
+        return dateValue >= monthStart;
+      })();
+
+      return matchesSearch && matchesDate;
+    });
+  }, [returnRecords, searchTerm, dateFilter]);
+
+  const filteredSalesAmount = useMemo(
+    () => filteredSales.reduce((sum, sale) => sum + (Number(sale.totalAmount) || 0), 0),
+    [filteredSales]
+  );
+
+  const filteredReturnAmount = useMemo(
+    () => {
+      if (salespersonFilter !== 'all') return 0;
+      return filteredReturnRecords.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    },
+    [filteredReturnRecords, salespersonFilter]
+  );
+
+  const filteredNetAmount = filteredSalesAmount - filteredReturnAmount;
 
   const loadDeletedSales = async () => {
     if (!storeId) return;
@@ -557,6 +647,10 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">总交易数</p>
             <p className="text-2xl font-black text-slate-900">{sales.length}</p>
           </div>
+          <div className="hidden md:block text-right">
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">净成交额</p>
+            <p className="text-2xl font-black text-emerald-600">￥{filteredNetAmount.toFixed(2)}</p>
+          </div>
           <button
             onClick={async () => {
               setShowDeleted(true);
@@ -621,7 +715,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             清空
           </button>
         </div>
-        <p className="text-xs text-slate-400 mt-2">当前显示 {filteredSales.length} / {sales.length} 条</p>
+        <p className="text-xs text-slate-400 mt-2">当前显示 {filteredSales.length} / {sales.length} 条 · 销售额 ￥{filteredSalesAmount.toFixed(2)} · 退货扣减 ￥{filteredReturnAmount.toFixed(2)} · 净额 ￥{filteredNetAmount.toFixed(2)}</p>
       </div>
 
       {/* Mobile Card List */}

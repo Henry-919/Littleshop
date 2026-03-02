@@ -5,13 +5,35 @@ import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import { parseAppDate } from '../lib/date';
 
+type ReturnAmountRecord = {
+  id?: string;
+  amount?: number | string;
+  return_date?: string;
+  created_at?: string;
+};
+
+const loadLocalReturnRecords = (storeId?: string): ReturnAmountRecord[] => {
+  if (typeof window === 'undefined' || !storeId) return [];
+  try {
+    const raw = window.localStorage.getItem(`littleshop_return_records_${storeId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   const { sales, products, categories } = store;
+  const [returnRecords, setReturnRecords] = useState<ReturnAmountRecord[]>([]);
 
   type PaymentInput = { card: string; cash: string; transfer: string };
 
   const stats = useMemo(() => {
-    const totalRevenue = sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
+    const totalSalesRevenue = sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
+    const totalReturnAmount = returnRecords.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const totalRevenue = totalSalesRevenue - totalReturnAmount;
     const totalOrders = sales.length;
 
     // 销售员业绩排行
@@ -51,7 +73,33 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
       });
 
     return { totalRevenue, totalOrders, topSalespeople, topProducts };
-  }, [sales, products]);
+  }, [sales, products, returnRecords]);
+
+  useEffect(() => {
+    const loadReturns = async () => {
+      if (!storeId) {
+        setReturnRecords([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('returns')
+        .select('id, amount, return_date, created_at')
+        .eq('store_id', storeId)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(2000);
+
+      if (!error) {
+        setReturnRecords(data || []);
+        return;
+      }
+
+      setReturnRecords(loadLocalReturnRecords(storeId));
+    };
+
+    loadReturns();
+  }, [storeId]);
 
   const [lowStockList, setLowStockList] = useState<any[]>([]);
   const [lowStockPage, setLowStockPage] = useState(1);
@@ -119,6 +167,21 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
       entry.daily.set(dayKey, (entry.daily.get(dayKey) || 0) + (sale.totalAmount || 0));
     }
 
+    for (const item of returnRecords) {
+      const date = parseAppDate(item.return_date || item.created_at);
+      if (!date) continue;
+      const amount = Number(item.amount) || 0;
+      if (amount <= 0) continue;
+      const monthKey = toMonthKey(date);
+      const dayKey = toDayKey(date);
+      if (!map.has(monthKey)) {
+        map.set(monthKey, { total: 0, daily: new Map() });
+      }
+      const entry = map.get(monthKey)!;
+      entry.total -= amount;
+      entry.daily.set(dayKey, (entry.daily.get(dayKey) || 0) - amount);
+    }
+
     const months = Array.from(map.entries())
       .map(([monthKey, data]) => ({
         monthKey,
@@ -130,7 +193,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
       .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
 
     return months;
-  }, [sales]);
+  }, [sales, returnRecords]);
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [paymentInputs, setPaymentInputs] = useState<Record<string, PaymentInput>>({});
@@ -297,7 +360,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                 <div className="rounded-2xl border border-slate-100 overflow-hidden">
                   <div className="p-3 sm:p-4 bg-slate-50/50 flex items-center justify-between">
                     <div className="font-bold text-slate-900 text-sm sm:text-base">
-                      {formatMonthLabel(selectedMonthData.monthKey)}每日销售额
+                      {formatMonthLabel(selectedMonthData.monthKey)}每日营业额（已扣退货）
                     </div>
                     <div className="text-xs sm:text-sm text-slate-500">
                       合计：￥{selectedMonthData.total.toLocaleString()}
@@ -379,7 +442,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                       <thead>
                         <tr className="bg-white text-slate-400 text-xs uppercase tracking-wider">
                           <th className="px-6 py-3">日期</th>
-                          <th className="px-6 py-3">当日销售额</th>
+                          <th className="px-6 py-3">当日营业额</th>
                           <th className="px-6 py-3">刷卡收款</th>
                           <th className="px-6 py-3">现金收款</th>
                           <th className="px-6 py-3">手机转账</th>

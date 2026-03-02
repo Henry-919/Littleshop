@@ -35,20 +35,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       auth: { persistSession: false, autoRefreshToken: false }
     });
 
-    const [salesRes, productsRes, categoriesRes] = await Promise.all([
+    const [salesRes, productsRes, categoriesRes, returnsRes] = await Promise.all([
       supabase.from('sales').select('product_id, quantity, total_amount, date').eq('store_id', storeId).is('deleted_at', null),
       supabase.from('products').select('id, name, stock, price, category_id').eq('store_id', storeId).is('deleted_at', null),
-      supabase.from('categories').select('id, name, low_stock_threshold').eq('store_id', storeId).is('deleted_at', null)
+      supabase.from('categories').select('id, name, low_stock_threshold').eq('store_id', storeId).is('deleted_at', null),
+      supabase.from('returns').select('amount, return_date, created_at').eq('store_id', storeId).is('deleted_at', null)
     ]);
 
-    if (salesRes.error || productsRes.error || categoriesRes.error) {
-      const error = salesRes.error || productsRes.error || categoriesRes.error;
+    const returnsTableMissing = returnsRes.error?.code === '42P01';
+
+    if (salesRes.error || productsRes.error || categoriesRes.error || (returnsRes.error && !returnsTableMissing)) {
+      const error = salesRes.error || productsRes.error || categoriesRes.error || returnsRes.error;
       return res.status(500).json({ error: error?.message || 'Supabase query failed' });
     }
 
     const products = productsRes.data || [];
     const sales = salesRes.data || [];
     const categories = categoriesRes.data || [];
+    const returns = returnsTableMissing ? [] : (returnsRes.data || []);
 
     const productMap = new Map(products.map((p: any) => [p.id, p]));
     const categoryMap = new Map(categories.map((c: any) => [c.id, c.name]));
@@ -104,6 +108,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!date || Number.isNaN(date.getTime())) continue;
       const key = formatDay(date);
       dailySalesMap.set(key, (dailySalesMap.get(key) || 0) + (Number(sale.total_amount) || 0));
+    }
+
+    for (const item of returns) {
+      const dateText = item.return_date || item.created_at;
+      const date = dateText ? new Date(dateText) : null;
+      if (!date || Number.isNaN(date.getTime())) continue;
+      if (date < monthStart || date > monthEnd) continue;
+      const key = formatDay(date);
+      dailySalesMap.set(key, (dailySalesMap.get(key) || 0) - (Number(item.amount) || 0));
     }
 
     const dailySales = [] as { date: string; revenue: number }[];
