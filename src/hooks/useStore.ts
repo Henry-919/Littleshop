@@ -401,17 +401,48 @@ export function useStore(storeId?: string) {
       return { success: false, message: '源门店扣减失败，已回滚目标门店库存' };
     }
 
-    const { error: transferLogError } = await supabase
+    const transferLogBase = {
+      product_name: sourceProduct.name,
+      quantity: transferQty,
+      source_product_id: sourceProduct.id,
+      target_product_id: targetExisting?.id || insertedTargetId,
+      created_at: new Date().toISOString()
+    };
+
+    let transferLogError: any = null;
+
+    const primaryInsert = await supabase
       .from('stock_transfers')
       .insert([{
-        product_name: sourceProduct.name,
-        quantity: transferQty,
+        ...transferLogBase,
         source_store_id: storeId,
-        target_store_id: targetStoreId,
-        source_product_id: sourceProduct.id,
-        target_product_id: targetExisting?.id || insertedTargetId,
-        created_at: new Date().toISOString()
+        target_store_id: targetStoreId
       }]);
+
+    transferLogError = primaryInsert.error;
+
+    if (transferLogError) {
+      const code = String((transferLogError as any)?.code || '');
+      const message = String((transferLogError as any)?.message || '').toLowerCase();
+      const details = String((transferLogError as any)?.details || '').toLowerCase();
+      const hint = String((transferLogError as any)?.hint || '').toLowerCase();
+      const missingColumnLike = code === '42703'
+        || message.includes('column')
+        || details.includes('column')
+        || hint.includes('column');
+
+      if (missingColumnLike) {
+        const legacyInsert = await supabase
+          .from('stock_transfers')
+          .insert([{
+            ...transferLogBase,
+            from_store_id: storeId,
+            to_store_id: targetStoreId
+          } as any]);
+
+        transferLogError = legacyInsert.error;
+      }
+    }
 
     setProducts(prev => prev.map(p => p.id === sourceProduct.id ? { ...p, stock: newSourceStock } : p));
 
