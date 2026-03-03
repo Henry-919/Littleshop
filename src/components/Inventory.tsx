@@ -670,16 +670,40 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
     if (transferMode === 'manual') {
       const quantity = Number(transferForm.quantity);
-      const fallback = resolveProductIdByModel(manualProductName);
-      const productId = transferForm.productId || fallback.productId;
-
-      if (!productId) {
-        alert('请选择商品或手动输入可匹配的商品名称');
-        return;
-      }
       if (!Number.isFinite(quantity) || quantity <= 0) {
         alert('调货数量必须大于 0');
         return;
+      }
+
+      const manualName = String(manualProductName || '').trim();
+      const fallback = resolveProductIdByModel(manualName);
+      let productId = transferForm.productId || fallback.productId;
+      let autoCreated = false;
+
+      if (!productId) {
+        if (!manualName) {
+          alert('请选择商品，或手动输入商品名称后重试');
+          return;
+        }
+        if (!addProduct) {
+          alert('当前无法自动创建商品，请刷新后重试');
+          return;
+        }
+
+        const { data: createdProduct, error: createError } = await addProduct({
+          name: manualName,
+          price: 0,
+          cost_price: 0,
+          stock: quantity
+        });
+
+        if (createError || !createdProduct?.id) {
+          alert(`未在库存中找到该商品，且自动创建失败：${createError?.message || '未知错误'}`);
+          return;
+        }
+
+        productId = createdProduct.id;
+        autoCreated = true;
       }
 
       setTransferSubmitting(true);
@@ -691,7 +715,11 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
         return;
       }
 
-      alert(result?.message || '调货成功，已完成库存加减');
+      if (autoCreated) {
+        alert(result?.message || '调货成功，已自动创建源门店商品并完成库存加减');
+      } else {
+        alert(result?.message || '调货成功，已完成库存加减');
+      }
       setIsTransferOpen(false);
       await fetchData?.();
       return;
