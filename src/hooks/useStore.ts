@@ -401,53 +401,100 @@ export function useStore(storeId?: string) {
       return { success: false, message: '源门店扣减失败，已回滚目标门店库存' };
     }
 
-    const transferLogBase = {
-      product_name: sourceProduct.name,
-      quantity: transferQty,
-      source_product_id: sourceProduct.id,
-      target_product_id: targetExisting?.id || insertedTargetId,
-      created_at: new Date().toISOString()
-    };
-
-    let transferLogError: any = null;
-
-    const primaryInsert = await supabase
-      .from('stock_transfers')
-      .insert([{
-        ...transferLogBase,
+    const transferTime = new Date().toISOString();
+    const targetProductId = targetExisting?.id || insertedTargetId;
+    const transferLogPayloads: Array<Record<string, any>> = [
+      {
+        product_name: sourceProduct.name,
+        quantity: transferQty,
+        source_store_id: storeId,
+        target_store_id: targetStoreId,
+        source_product_id: sourceProduct.id,
+        target_product_id: targetProductId,
+        created_at: transferTime
+      },
+      {
+        product_name: sourceProduct.name,
+        quantity: transferQty,
+        from_store_id: storeId,
+        to_store_id: targetStoreId,
+        source_product_id: sourceProduct.id,
+        target_product_id: targetProductId,
+        created_at: transferTime
+      },
+      {
+        product: sourceProduct.name,
+        qty: transferQty,
+        source_store_id: storeId,
+        target_store_id: targetStoreId,
+        source_product_id: sourceProduct.id,
+        target_product_id: targetProductId,
+        created_at: transferTime
+      },
+      {
+        product: sourceProduct.name,
+        qty: transferQty,
+        from_store_id: storeId,
+        to_store_id: targetStoreId,
+        source_product_id: sourceProduct.id,
+        target_product_id: targetProductId,
+        created_at: transferTime
+      },
+      {
+        product_name: sourceProduct.name,
+        quantity: transferQty,
         source_store_id: storeId,
         target_store_id: targetStoreId
-      }]);
+      },
+      {
+        product_name: sourceProduct.name,
+        quantity: transferQty,
+        from_store_id: storeId,
+        to_store_id: targetStoreId
+      },
+      {
+        product: sourceProduct.name,
+        qty: transferQty,
+        source_store_id: storeId,
+        target_store_id: targetStoreId
+      },
+      {
+        product: sourceProduct.name,
+        qty: transferQty,
+        from_store_id: storeId,
+        to_store_id: targetStoreId
+      }
+    ];
 
-    transferLogError = primaryInsert.error;
-
-    if (transferLogError) {
-      const code = String((transferLogError as any)?.code || '');
-      const message = String((transferLogError as any)?.message || '').toLowerCase();
-      const details = String((transferLogError as any)?.details || '').toLowerCase();
-      const hint = String((transferLogError as any)?.hint || '').toLowerCase();
-      const missingColumnLike = code === '42703'
+    let transferLogError: any = null;
+    for (const payload of transferLogPayloads) {
+      const { error } = await supabase.from('stock_transfers').insert([payload]);
+      if (!error) {
+        transferLogError = null;
+        break;
+      }
+      transferLogError = error;
+      const code = String((error as any)?.code || '');
+      const message = String((error as any)?.message || '').toLowerCase();
+      const details = String((error as any)?.details || '').toLowerCase();
+      const hint = String((error as any)?.hint || '').toLowerCase();
+      const schemaLikeError = code === '42703' || code === 'PGRST204'
         || message.includes('column')
+        || message.includes('schema')
         || details.includes('column')
         || hint.includes('column');
 
-      if (missingColumnLike) {
-        const legacyInsert = await supabase
-          .from('stock_transfers')
-          .insert([{
-            ...transferLogBase,
-            from_store_id: storeId,
-            to_store_id: targetStoreId
-          } as any]);
-
-        transferLogError = legacyInsert.error;
+      if (!schemaLikeError) {
+        break;
       }
     }
 
     setProducts(prev => prev.map(p => p.id === sourceProduct.id ? { ...p, stock: newSourceStock } : p));
 
     if (transferLogError) {
-      return { success: true, message: '调货成功，但调货记录写入失败' };
+      const code = String((transferLogError as any)?.code || 'unknown');
+      const message = String((transferLogError as any)?.message || 'unknown error');
+      return { success: true, message: `调货成功，但调货记录写入失败（${code}: ${message}）` };
     }
     return { success: true, message: '调货成功' };
   };
