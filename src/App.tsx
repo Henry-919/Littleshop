@@ -1,17 +1,38 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from './hooks/useStore';
 import { supabase } from './lib/supabase';
 import { Sidebar, TabType } from './components/Sidebar';
-import { Dashboard } from './components/Dashboard';
-import { POS } from './components/POS';
-import { Inventory } from './components/Inventory';
-import { SalesHistory } from './components/SalesHistory';
-import { Analytics } from './components/Analytics';
-import { Categories } from './components/Categories';
-import { Stores } from './components/Stores';
-import { Returns } from './components/Returns';
 import { Menu } from 'lucide-react';
 import { subscribeNavigate } from './lib/navigation';
+
+const Dashboard = lazy(() => import('./components/Dashboard').then((m) => ({ default: m.Dashboard })));
+const POS = lazy(() => import('./components/POS').then((m) => ({ default: m.POS })));
+const Inventory = lazy(() => import('./components/Inventory').then((m) => ({ default: m.Inventory })));
+const SalesHistory = lazy(() => import('./components/SalesHistory').then((m) => ({ default: m.SalesHistory })));
+const Analytics = lazy(() => import('./components/Analytics').then((m) => ({ default: m.Analytics })));
+const Categories = lazy(() => import('./components/Categories').then((m) => ({ default: m.Categories })));
+const Stores = lazy(() => import('./components/Stores').then((m) => ({ default: m.Stores })));
+const Returns = lazy(() => import('./components/Returns').then((m) => ({ default: m.Returns })));
+
+const TAB_TITLES: Record<TabType, string> = {
+  dashboard: '经营看板',
+  pos: '收银终端',
+  inventory: '库存管理',
+  returns: '退货管理',
+  categories: '商品分类',
+  stores: '门店管理',
+  history: '销售流水',
+  analytics: '深度分析'
+};
+
+function PageLoadingFallback() {
+  return (
+    <div className="ui-card p-10 flex flex-col items-center justify-center gap-3 text-slate-500 min-h-[240px]">
+      <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+      <p className="text-sm">页面加载中...</p>
+    </div>
+  );
+}
 
 function App() {
   const [stores, setStores] = useState<{ id: string; name: string }[]>([]);
@@ -53,8 +74,7 @@ function App() {
     return unsubscribe;
   }, []);
 
-  // 根据侧边栏选择渲染对应的页面组件
-  const renderContent = () => {
+  const content = useMemo(() => {
     switch (activeTab) {
       case 'dashboard':
         return <Dashboard store={store} storeId={storeId} />;
@@ -75,7 +95,7 @@ function App() {
       default:
         return <Dashboard store={store} storeId={storeId} />;
     }
-  };
+  }, [activeTab, loadStores, store, storeId]);
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
@@ -94,22 +114,13 @@ function App() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="md:hidden p-2 bg-slate-100 text-slate-700 rounded-lg"
+              className="md:hidden ui-btn-muted !p-2 !rounded-lg"
               aria-label="打开菜单"
             >
               <Menu className="w-4 h-4" />
             </button>
             <span className="hidden md:inline text-sm font-medium text-slate-400">当前位置 /</span>
-            <span className="text-xs md:text-sm font-bold text-slate-600">
-              {activeTab === 'dashboard' && '经营看板'}
-              {activeTab === 'pos' && '收银终端'}
-              {activeTab === 'inventory' && '库存管理'}
-              {activeTab === 'returns' && '退货管理'}
-              {activeTab === 'categories' && '商品分类'}
-              {activeTab === 'stores' && '门店管理'}
-              {activeTab === 'history' && '销售流水'}
-              {activeTab === 'analytics' && '深度分析'}
-            </span>
+            <span className="text-xs md:text-sm font-bold text-slate-600">{TAB_TITLES[activeTab]}</span>
           </div>
           
           <div className="flex items-center gap-2 md:gap-4">
@@ -118,7 +129,7 @@ function App() {
               <select
                 value={storeId}
                 onChange={(e) => setStoreId(e.target.value)}
-                className="max-w-[120px] sm:max-w-none px-2 py-1 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
+                className="ui-select max-w-[120px] sm:max-w-none !py-1.5 !text-xs"
               >
                 {stores.length === 0 && (
                   <option value="" disabled>暂无门店</option>
@@ -139,10 +150,12 @@ function App() {
         </header>
 
         {/* 页面内容容器 */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar bg-[#F8FAFC]">
-          <div className="max-w-7xl mx-auto">
-            {renderContent()}
-          </div>
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar bg-slate-50">
+          <Suspense fallback={<PageLoadingFallback />}>
+            <section key={activeTab} className="max-w-7xl mx-auto page-enter">
+              {content}
+            </section>
+          </Suspense>
         </div>
       </main>
     </div>

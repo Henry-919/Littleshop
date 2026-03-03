@@ -11,19 +11,18 @@ interface SidebarProps {
   onCloseMobile?: () => void;
 }
 
-export function Sidebar({ activeTab, setActiveTab, mobileOpen = false, onCloseMobile }: SidebarProps) {
-  // 定义导航项，全部中文化并赋予清晰的语义
-  const navItems = [
-    { id: 'dashboard', label: '经营看板', icon: LayoutDashboard },
-    { id: 'pos', label: '收银终端', icon: ShoppingCart },
-    { id: 'inventory', label: '库存管理', icon: Package },
-    { id: 'returns', label: '退货管理', icon: RotateCcw },
-    { id: 'categories', label: '商品分类', icon: Tags },
-    { id: 'stores', label: '门店管理', icon: Building2 },
-    { id: 'history', label: '销售流水', icon: History },
-    { id: 'analytics', label: '深度分析', icon: BarChart3 },
-  ] as const;
+const NAV_ITEMS = [
+  { id: 'dashboard', label: '经营看板', icon: LayoutDashboard },
+  { id: 'pos', label: '收银终端', icon: ShoppingCart },
+  { id: 'inventory', label: '库存管理', icon: Package },
+  { id: 'returns', label: '退货管理', icon: RotateCcw },
+  { id: 'categories', label: '商品分类', icon: Tags },
+  { id: 'stores', label: '门店管理', icon: Building2 },
+  { id: 'history', label: '销售流水', icon: History },
+  { id: 'analytics', label: '深度分析', icon: BarChart3 },
+] as const;
 
+export function Sidebar({ activeTab, setActiveTab, mobileOpen = false, onCloseMobile }: SidebarProps) {
   const renderNav = () => (
     <>
       {/* Logo 区域 */}
@@ -40,7 +39,7 @@ export function Sidebar({ activeTab, setActiveTab, mobileOpen = false, onCloseMo
 
       {/* 导航区域 */}
       <nav className="flex-1 px-4 space-y-1.5">
-        {navItems.map((item) => {
+        {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           
@@ -51,10 +50,10 @@ export function Sidebar({ activeTab, setActiveTab, mobileOpen = false, onCloseMo
                 setActiveTab(item.id);
                 onCloseMobile?.();
               }}
-              className={`w-full flex items-center justify-between group px-4 py-3.5 rounded-xl transition-all duration-200 relative
+              className={`w-full flex items-center justify-between group px-4 py-3.5 rounded-xl transition-all duration-200 relative active:translate-y-px
                 ${isActive 
                   ? 'bg-emerald-500/10 text-emerald-400 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.2)]' 
-                  : 'text-slate-400 hover:bg-slate-900 hover:text-white'
+                  : 'text-slate-400 hover:bg-slate-900/80 hover:text-white'
                 }`}
             >
               <div className="flex items-center space-x-3 z-10">
@@ -102,10 +101,10 @@ export function Sidebar({ activeTab, setActiveTab, mobileOpen = false, onCloseMo
         <div className="md:hidden fixed inset-0 z-[120] flex">
           <button
             onClick={onCloseMobile}
-            className="absolute inset-0 bg-slate-900/60"
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px]"
             aria-label="关闭导航"
           />
-          <div className="relative w-[84%] max-w-[320px] bg-slate-950 text-white flex flex-col h-full border-r border-slate-800/50 shadow-2xl animate-in slide-in-from-left duration-200">
+          <div className="relative w-[84%] max-w-[320px] bg-slate-950 text-white flex flex-col h-full border-r border-slate-800/50 shadow-2xl page-enter">
             {renderNav()}
           </div>
         </div>

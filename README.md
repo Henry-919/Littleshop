@@ -22,3 +22,12 @@ View your app in AI Studio: https://ai.studio/apps/3a8c77bc-3883-4def-a410-96286
 ## Supabase setup for transfer history
 
 If you enable store-to-store transfer history, run SQL in [templates/stock_transfers.sql](templates/stock_transfers.sql) in your Supabase SQL Editor first.
+
+Recommended steps:
+
+1. Open Supabase SQL Editor
+2. Paste and run [templates/stock_transfers.sql](templates/stock_transfers.sql)
+3. Wait 3-10 seconds for PostgREST schema cache refresh
+4. Retry transfer in app
+
+If you see `Could not find the table 'public.stock_transfers' in the schema cache`, run the SQL file again once and make sure it finishes successfully.

@@ -245,7 +245,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
     <div className="max-w-2xl mx-auto space-y-6">
       <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div className="ui-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 bg-slate-50/50">
           <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <ShoppingBag className="w-6 h-6 text-emerald-500" />
@@ -266,7 +266,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                 value={salesperson}
                 onChange={(e) => setSalesperson(e.target.value)}
                 placeholder="输入经手人姓名（结算后保留）"
-                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                className="ui-input"
                 required
               />
             </div>
@@ -278,7 +278,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                 type="date"
                 value={saleDate}
                 onChange={(e) => setSaleDate(e.target.value)}
-                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                className="ui-input"
                 title="不填则默认当天"
               />
             </div>
@@ -307,7 +307,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                 }
               }}
               placeholder="输入名称搜索或直接输入新商品名..."
-              className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+              className="ui-input"
               required
             />
             <datalist id="product-list">
@@ -343,7 +343,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                 step="0.01"
                 value={manualPrice}
                 onChange={(e) => setManualPrice(e.target.value)}
-                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                className="ui-input"
                 placeholder="手动输入销售价"
                 required
               />
@@ -355,7 +355,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                 min="1"
                 value={quantity}
                 onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                className="ui-input"
                 required
               />
             </div>
@@ -375,7 +375,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                     step="0.01"
                     value={costPrice}
                     onChange={(e) => setCostPrice(e.target.value)}
-                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-400 outline-none bg-white"
+                    className="ui-input"
                     placeholder="必填"
                     required
                   />
@@ -387,7 +387,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                     min="0"
                     value={initStock}
                     onChange={(e) => setInitStock(e.target.value)}
-                    className="w-full p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-400 outline-none bg-white"
+                    className="ui-input"
                     placeholder="默认 0"
                   />
                 </div>
@@ -399,7 +399,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                 <select
                   value={selectedCategoryId}
                   onChange={(e) => setSelectedCategoryId(e.target.value)}
-                  className="w-full p-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                  className="ui-select"
                 >
                   <option value="">-- 未分类 --</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -426,7 +426,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                 onChange={(e) => setAbnormalPriceNote(e.target.value)}
                 rows={2}
                 placeholder="例如：临期清仓、会员折扣、活动价、协商价..."
-                className="w-full p-2.5 border border-rose-200 rounded-lg focus:ring-2 focus:ring-rose-300 outline-none text-sm bg-white"
+                className="ui-input !border-rose-200 !text-sm"
               />
             </div>
           )}
@@ -434,8 +434,8 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
           <button
             type="submit"
             disabled={isSubmitting || !searchTerm}
-            className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-md flex items-center justify-center gap-2 ${
-              isSubmitting ? 'bg-slate-200 text-slate-400' : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+            className={`ui-btn w-full py-4 text-lg shadow-sm ${
+              isSubmitting ? 'bg-slate-200 text-slate-400' : 'ui-btn-primary'
             }`}
           >
             {isSubmitting ? '处理中...' : <><CheckCircle2 className="w-5 h-5" /> 完成并录入结算</>}
@@ -443,7 +443,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
         </form>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      <div className="ui-card overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between gap-2">
           <div>
             <h3 className="text-base sm:text-lg font-bold text-slate-900">销售录入记录（人工核对）</h3>
@@ -451,7 +451,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
           </div>
           <button
             onClick={() => persistEntryRecords([])}
-            className="px-3 py-1.5 text-xs font-bold bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all"
+            className="ui-btn-muted !px-3 !py-1.5 !text-xs !rounded-lg"
           >
             清空
           </button>

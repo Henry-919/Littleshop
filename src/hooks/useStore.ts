@@ -491,6 +491,19 @@ export function useStore(storeId?: string) {
 
     setProducts(prev => prev.map(p => p.id === sourceProduct.id ? { ...p, stock: newSourceStock } : p));
 
+    const transferLogCode = String((transferLogError as any)?.code || '').toUpperCase();
+    const transferLogMessage = String((transferLogError as any)?.message || '').toLowerCase();
+    const transferLogDetails = String((transferLogError as any)?.details || '').toLowerCase();
+    const transferTableMissing = transferLogCode === 'PGRST205'
+      || transferLogCode === '42P01'
+      || transferLogMessage.includes('could not find the table')
+      || transferLogMessage.includes('stock_transfers') && transferLogMessage.includes('schema cache')
+      || transferLogDetails.includes('stock_transfers');
+
+    if (transferLogError && transferTableMissing) {
+      return { success: true, message: '调货成功（未启用调货记录表，已跳过记录写入）' };
+    }
+
     if (transferLogError) {
       const code = String((transferLogError as any)?.code || 'unknown');
       const message = String((transferLogError as any)?.message || 'unknown error');

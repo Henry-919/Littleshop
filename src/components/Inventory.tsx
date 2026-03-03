@@ -1,16 +1,15 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { Suspense, lazy, useDeferredValue, useEffect, useState, useMemo, useRef } from 'react';
 import { useStore } from '../hooks/useStore';
 import { supabase } from '../lib/supabase';
-import * as XLSX from 'xlsx';
-import heic2any from 'heic2any';
 import { 
   Layers, Search, ScanLine, Plus, Edit2, Trash2, Check, RotateCcw, X, AlertTriangle, ArrowRightLeft, ImageUp, Loader2, History
 } from 'lucide-react';
-import { ExcelImporter } from './ExcelImporter';
-import { ReceiptScanner } from './ReceiptScanner';
-import { StockBatchImporter } from './StockBatchImporter';
 import { formatZhDateTime } from '../lib/date';
 import { appendInboundLogs, getInboundLogsByStore } from '../lib/inboundLog';
+
+const ExcelImporter = lazy(() => import('./ExcelImporter').then((m) => ({ default: m.ExcelImporter })));
+const StockBatchImporter = lazy(() => import('./StockBatchImporter').then((m) => ({ default: m.StockBatchImporter })));
+const ReceiptScanner = lazy(() => import('./ReceiptScanner').then((m) => ({ default: m.ReceiptScanner })));
 
 const normalizeModel = (value: string) =>
   value
@@ -67,6 +66,7 @@ const isHeicLike = (file: File) => {
 
 const toJpegDataUrlIfNeeded = async (file: File) => {
   if (!isHeicLike(file)) return fileToDataUrl(file);
+  const { default: heic2any } = await import('heic2any');
   const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
   const jpegBlob = Array.isArray(converted) ? converted[0] : converted;
   if (!(jpegBlob instanceof Blob)) throw new Error('HEIC 转换失败');
@@ -158,8 +158,35 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     targetStoreId: '',
     quantity: '1'
   });
+  const [productPage, setProductPage] = useState(1);
+  const [isMobileViewport, setIsMobileViewport] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 767px)').matches;
+  });
+  const deferredSearchTerm = useDeferredValue(searchTerm);
+  const isFiltering = deferredSearchTerm !== searchTerm;
 
   const DELETED_PAGE_SIZE = 10;
+
+  const isTransferTableMissingError = (error: any) => {
+    const code = String(error?.code || '').toUpperCase();
+    const message = String(error?.message || '').toLowerCase();
+    const details = String(error?.details || '').toLowerCase();
+    return code === 'PGRST205'
+      || code === '42P01'
+      || message.includes('could not find the table')
+      || (message.includes('stock_transfers') && message.includes('schema cache'))
+      || details.includes('stock_transfers');
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const media = window.matchMedia('(max-width: 767px)');
+    const updateViewport = () => setIsMobileViewport(media.matches);
+    updateViewport();
+    media.addEventListener('change', updateViewport);
+    return () => media.removeEventListener('change', updateViewport);
+  }, []);
 
   useEffect(() => {
     if (!isTransferOpen || !storeId) return;
@@ -229,6 +256,9 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
         .filter((item: any) => item.source_store_id === storeId || item.target_store_id === storeId);
 
       setTransferHistory(normalized);
+    } else if (isTransferTableMissingError(transfersRes.error)) {
+      setTransferHistory([]);
+      setTransferHistoryError('');
     } else {
       setTransferHistory([]);
       setTransferHistoryError(transfersRes.error?.message || '调货记录加载失败');
@@ -304,8 +334,10 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
       .slice(0, 1000);
 
     setInboundHistory(merged);
-    if (transfersRes.error) {
+    if (transfersRes.error && !isTransferTableMissingError(transfersRes.error)) {
       setInboundHistoryError(transfersRes.error.message || '调货入库记录加载失败');
+    } else {
+      setInboundHistoryError('');
     }
 
     setInboundHistoryLoading(false);
@@ -360,7 +392,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     setStockStatusFilter('all');
   };
 
-  const handleExportNegativeStock = () => {
+  const handleExportNegativeStock = async () => {
     const negativeProducts = products.filter((p: any) => Number(p.stock) < 0);
     if (negativeProducts.length === 0) {
       alert('当前没有负库存商品');
@@ -376,6 +408,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
       滞留时间: formatDwellDays(item.time)
     }));
 
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, '负库存清单');
@@ -418,17 +451,38 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     return Number(value).toFixed(2);
   };
 
+  const categoryNameMap = useMemo(() => {
+    return categories.reduce((acc: Record<string, string>, item: any) => {
+      acc[item.id] = item.name;
+      return acc;
+    }, {});
+  }, [categories]);
+
   const getCategoryName = (categoryId?: string) => {
     if (!categoryId) return '未分类';
-    return categories.find(c => c.id === categoryId)?.name || '未分类';
+    return categoryNameMap[categoryId] || '未分类';
   };
+
+  const indexedProducts = useMemo(() => {
+    return products.map((product: any) => ({
+      ...product,
+      _nameLower: String(product.name || '').toLowerCase(),
+      _categoryId: String(product.category_id ?? '').trim(),
+      _inboundDate: getInboundDate(product.time),
+      _dwellDays: getDwellDays(product.time)
+    }));
+  }, [products]);
 
   // 搜索过滤
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      const matchesSearch = (p.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const normalizedSearch = String(deferredSearchTerm || '').trim().toLowerCase();
+    const start = inboundStart ? new Date(`${inboundStart}T00:00:00`) : null;
+    const end = inboundEnd ? new Date(`${inboundEnd}T23:59:59`) : null;
 
-      const productCategoryId = (p.category_id ?? '').toString().trim();
+    return indexedProducts.filter((p: any) => {
+      const matchesSearch = !normalizedSearch || p._nameLower.includes(normalizedSearch);
+
+      const productCategoryId = p._categoryId;
       const selectedCategory = categoryFilter.toString().trim();
       const matchesCategory = (() => {
         if (selectedCategory === 'all') return true;
@@ -436,14 +490,12 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
         return productCategoryId === selectedCategory;
       })();
 
-      const inboundDate = getInboundDate(p.time);
-      const dwellDays = getDwellDays(p.time);
+      const inboundDate = p._inboundDate as Date | null;
+      const dwellDays = p._dwellDays as number | null;
 
       const matchesTime = (() => {
         if (!inboundStart && !inboundEnd) return true;
         if (!inboundDate) return false;
-        const start = inboundStart ? new Date(`${inboundStart}T00:00:00`) : null;
-        const end = inboundEnd ? new Date(`${inboundEnd}T23:59:59`) : null;
         if (start && inboundDate < start) return false;
         if (end && inboundDate > end) return false;
         return true;
@@ -464,7 +516,19 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
       return matchesSearch && matchesCategory && matchesTime && matchesDwell && matchesStockStatus;
     });
-  }, [products, searchTerm, categoryFilter, inboundStart, inboundEnd, dwellFilter, stockStatusFilter]);
+  }, [indexedProducts, deferredSearchTerm, categoryFilter, inboundStart, inboundEnd, dwellFilter, stockStatusFilter]);
+
+  const PRODUCT_PAGE_SIZE = 50;
+  const totalProductPages = Math.max(1, Math.ceil(filteredProducts.length / PRODUCT_PAGE_SIZE));
+  const safeProductPage = Math.min(productPage, totalProductPages);
+  const pagedFilteredProducts = useMemo(() => {
+    const start = (safeProductPage - 1) * PRODUCT_PAGE_SIZE;
+    return filteredProducts.slice(start, start + PRODUCT_PAGE_SIZE);
+  }, [filteredProducts, safeProductPage]);
+
+  useEffect(() => {
+    setProductPage(1);
+  }, [searchTerm, categoryFilter, inboundStart, inboundEnd, dwellFilter, stockStatusFilter]);
 
   // 行内编辑逻辑
   const startEditing = (p: any) => {
@@ -760,7 +824,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     alert(`已成功 ${successCount} 条，失败 ${failMessages.length} 条\n${failMessages.slice(0, 3).join('\n')}`);
   };
 
-  const exportTransferImageRows = () => {
+  const exportTransferImageRows = async () => {
     if (!transferImageRows.length) {
       alert('当前没有可导出的识别结果');
       return;
@@ -779,6 +843,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
       };
     });
 
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(wb, ws, '调货识别结果');
@@ -816,7 +881,10 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           </div>
           <div className="min-w-0">
             <h2 className="text-2xl font-black text-slate-900 tracking-tight">库存中心</h2>
-            <p className="text-slate-500 text-sm">当前共管理 {products.length} 项商品</p>
+            <p className="text-slate-500 text-sm">
+              当前共管理 {products.length} 项商品 · 筛选结果 {filteredProducts.length} 项
+              {isFiltering ? ' · 筛选中...' : ''}
+            </p>
           </div>
         </div>
 
@@ -828,14 +896,14 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 setShowDeleted(true);
                 await loadDeletedProducts();
               }}
-              className="w-full h-11 px-4 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
+              className="ui-btn w-full h-11 bg-slate-900 text-white hover:bg-slate-800 border border-slate-900 shadow-sm text-sm"
             >
               查看删除记录
             </button>
 
             <button
               onClick={() => setIsScanOpen(true)}
-              className="w-full h-11 px-4 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-indigo-100 shadow-sm text-sm"
+              className="ui-btn w-full h-11 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-100 shadow-sm text-sm"
             >
               <ScanLine className="w-5 h-5" /> AI 小票扫描
             </button>
@@ -847,7 +915,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 setShowTransferHistory(true);
                 await loadTransferHistory();
               }}
-              className="w-full h-11 px-4 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-sky-100 shadow-sm text-sm"
+              className="ui-btn w-full h-11 bg-sky-50 text-sky-700 hover:bg-sky-100 border border-sky-100 shadow-sm text-sm"
             >
               <ArrowRightLeft className="w-5 h-5" /> 调货记录
             </button>
@@ -860,27 +928,31 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                 setShowInboundHistory(true);
                 await loadInboundHistory();
               }}
-              className="w-full h-11 px-4 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-emerald-100 shadow-sm text-sm"
+              className="ui-btn w-full h-11 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-100 shadow-sm text-sm"
             >
               <History className="w-5 h-5" /> 入库记录
             </button>
 
             <button
               onClick={() => setIsAddOpen(true)}
-              className="w-full h-11 px-4 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-900 shadow-sm text-sm"
+              className="ui-btn w-full h-11 bg-slate-900 text-white hover:bg-slate-800 border border-slate-900 shadow-sm text-sm"
             >
               <Plus className="w-5 h-5" /> 新增商品
             </button>
 
             <button
               onClick={handleOpenTransfer}
-              className="w-full h-11 px-4 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-amber-100 shadow-sm text-sm"
+              className="ui-btn w-full h-11 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-100 shadow-sm text-sm"
             >
               <ArrowRightLeft className="w-5 h-5" /> 店铺调货
             </button>
 
-            <ExcelImporter store={store} />
-            <StockBatchImporter store={store} storeId={storeId} />
+            <Suspense fallback={<div className="ui-btn-muted w-full h-11 text-sm">导入模块加载中...</div>}>
+              <ExcelImporter store={store} />
+            </Suspense>
+            <Suspense fallback={<div className="ui-btn-muted w-full h-11 text-sm">批量模块加载中...</div>}>
+              <StockBatchImporter store={store} storeId={storeId} />
+            </Suspense>
             </div>
           </div>
         </div>
@@ -894,7 +966,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               placeholder="搜索商品..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full h-11 pl-10 pr-4 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 text-sm transition-all"
+              className="ui-input !h-11 !pl-10 !pr-4 !text-sm"
             />
           </div>
 
@@ -903,21 +975,21 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               type="date"
               value={inboundStart}
               onChange={(e) => setInboundStart(e.target.value)}
-              className="h-11 flex-1 min-w-0 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              className="ui-input h-11 flex-1 min-w-0 !px-3 !text-sm"
             />
             <span className="text-xs text-slate-400">-</span>
             <input
               type="date"
               value={inboundEnd}
               onChange={(e) => setInboundEnd(e.target.value)}
-              className="h-11 flex-1 min-w-0 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              className="ui-input h-11 flex-1 min-w-0 !px-3 !text-sm"
             />
           </div>
 
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 xl:col-span-2"
+            className="ui-select w-full h-11 !px-3 !text-sm xl:col-span-2"
           >
             <option value="all">产品类型：全部</option>
             <option value="uncategorized">产品类型：未分类</option>
@@ -929,7 +1001,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           <select
             value={dwellFilter}
             onChange={(e) => setDwellFilter(e.target.value as typeof dwellFilter)}
-            className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 xl:col-span-2"
+            className="ui-select w-full h-11 !px-3 !text-sm xl:col-span-2"
           >
             <option value="all">滞留天数：全部</option>
             <option value="0-7">0-7 天</option>
@@ -939,7 +1011,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
           <button
             onClick={handleClearFilters}
-            className="w-full h-11 px-3 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-slate-200 shadow-sm text-sm xl:col-span-2"
+            className="ui-btn-muted w-full h-11 !px-3 border border-slate-200 shadow-sm text-sm xl:col-span-2"
           >
             清空筛选
           </button>
@@ -947,7 +1019,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           <select
             value={stockStatusFilter}
             onChange={(e) => setStockStatusFilter(e.target.value as 'all' | 'negative')}
-            className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 xl:col-span-2"
+            className="ui-select w-full h-11 !px-3 !text-sm xl:col-span-2"
           >
             <option value="all">库存状态：全部</option>
             <option value="negative">库存状态：负库存</option>
@@ -955,7 +1027,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
 
           <button
             onClick={handleExportNegativeStock}
-            className="w-full h-11 px-3 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-xl font-bold transition-all inline-flex items-center justify-center gap-2 border border-rose-100 shadow-sm text-sm xl:col-span-2"
+            className="ui-btn w-full h-11 bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-100 shadow-sm text-sm xl:col-span-2"
           >
             导出负库存
           </button>
@@ -963,8 +1035,8 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
         </div>
       </div>
 
-      {/* 移动端卡片 */}
-      <div className="md:hidden space-y-3">
+      {isMobileViewport ? (
+      <div className="space-y-3">
         {filteredProducts.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center">
             <div className="flex flex-col items-center gap-2 text-slate-400">
@@ -974,7 +1046,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
             </div>
           </div>
         ) : (
-          filteredProducts.map(product => (
+          pagedFilteredProducts.map(product => (
             <div key={product.id} className={`rounded-2xl p-4 space-y-3 shadow-sm border ${Number(product.stock) < 0 ? 'bg-rose-50/40 border-rose-200' : 'bg-white border-slate-100'}`}>
               <div className="flex items-start justify-between gap-3">
                 {editingId === product.id ? (
@@ -1076,9 +1148,8 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           ))
         )}
       </div>
-
-      {/* 桌面端表格 */}
-      <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      ) : (
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-left text-sm table-fixed">
             <thead>
@@ -1093,7 +1164,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredProducts.map(product => (
+              {pagedFilteredProducts.map(product => (
                 <tr key={product.id} className={`transition-colors group ${Number(product.stock) < 0 ? 'bg-rose-50/30 hover:bg-rose-50/60' : 'hover:bg-slate-50/50'}`}>
                   <td className="px-6 py-4">
                     {editingId === product.id ? (
@@ -1230,6 +1301,31 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
           </table>
         </div>
       </div>
+      )}
+
+      {filteredProducts.length > 0 && (
+        <div className="ui-card p-3 md:p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <p className="text-xs sm:text-sm text-slate-500">
+            第 {safeProductPage} / {totalProductPages} 页 · 当前页 {pagedFilteredProducts.length} 条 · 共 {filteredProducts.length} 条
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setProductPage((prev) => Math.max(1, prev - 1))}
+              disabled={safeProductPage <= 1}
+              className="ui-btn-muted !px-3 !py-2 !text-xs"
+            >
+              上一页
+            </button>
+            <button
+              onClick={() => setProductPage((prev) => Math.min(totalProductPages, prev + 1))}
+              disabled={safeProductPage >= totalProductPages}
+              className="ui-btn-muted !px-3 !py-2 !text-xs"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 新增商品 Modal */}
       {isAddOpen && (
@@ -1496,7 +1592,9 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
               <X className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
             <div className="p-2 sm:p-3 md:p-8 overflow-y-auto custom-scrollbar">
-               <ReceiptScanner store={store} />
+              <Suspense fallback={<div className="ui-card p-6 text-sm text-slate-500">扫描模块加载中...</div>}>
+                <ReceiptScanner store={store} />
+              </Suspense>
             </div>
           </div>
         </div>
