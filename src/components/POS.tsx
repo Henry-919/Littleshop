@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useStore } from '../hooks/useStore';
 import { ShoppingBag, User, Plus, Search, CheckCircle2, Tag, Package, DollarSign, CalendarDays } from 'lucide-react';
 import { formatZhDateTime } from '../lib/date';
+import { buildHistoricalPriceMap, getReferencePrice } from '../lib/pricing';
 import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
 
 type PosEntryRecord = {
@@ -26,7 +27,7 @@ const POS_ENTRY_RECORDS_LIMIT = 120;
 const normalizeText = (value: string) => String(value || '').trim().toLowerCase();
 
 export function POS({ store }: { store: ReturnType<typeof useStore> }) {
-  const { products, categories, addSale } = store;
+  const { products, categories, sales, addSale } = store;
   
   // 状态管理
   const [searchTerm, setSearchTerm] = useState('');
@@ -75,16 +76,31 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   // 判断是否为"全新商品"
   const isNewProduct = searchTerm.length > 0 && !matchedProduct;
 
+  const historicalPriceMap = useMemo(() => buildHistoricalPriceMap(sales), [sales]);
+
+  const hasHistoricalReference = useMemo(() => {
+    if (!matchedProduct || isNewProduct) return false;
+    return (historicalPriceMap.get(matchedProduct.id) || 0) > 0;
+  }, [matchedProduct, isNewProduct, historicalPriceMap]);
+
+  const referencePrice = useMemo(() => {
+    if (!matchedProduct || isNewProduct) return 0;
+    return getReferencePrice({
+      product: matchedProduct,
+      historicalPrice: historicalPriceMap.get(matchedProduct.id)
+    });
+  }, [matchedProduct, isNewProduct, historicalPriceMap]);
+
   const priceDeviation = useMemo(() => {
     if (!matchedProduct || isNewProduct) return 0;
-    const basePrice = Number(matchedProduct.price) || 0;
+    const basePrice = referencePrice;
     const salePrice = parseFloat(manualPrice);
     if (!Number.isFinite(basePrice) || basePrice <= 0) return 0;
     if (!Number.isFinite(salePrice) || salePrice <= 0) return 0;
     return Math.abs(salePrice - basePrice) / basePrice;
-  }, [matchedProduct, isNewProduct, manualPrice]);
+  }, [matchedProduct, isNewProduct, manualPrice, referencePrice]);
 
-  const needsAbnormalNote = !!matchedProduct && !isNewProduct && priceDeviation >= 0.3;
+  const needsAbnormalNote = !!matchedProduct && !isNewProduct && hasHistoricalReference && priceDeviation >= 0.3;
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,12 +137,12 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
       const salePrice = parseFloat(manualPrice);
 
       if (!isNewProduct && matchedProduct) {
-        const basePrice = Number(matchedProduct.price) || 0;
-        if (basePrice > 0) {
+        const basePrice = referencePrice;
+        if (hasHistoricalReference && basePrice > 0) {
           const deviation = Math.abs(salePrice - basePrice) / basePrice;
           if (deviation >= 0.3) {
             const confirmed = window.confirm(
-              `当前销售单价 ￥${salePrice.toFixed(2)} 与商品标价 ￥${basePrice.toFixed(2)} 偏差较大，确认继续吗？`
+              `当前销售单价 ￥${salePrice.toFixed(2)} 与参考标价 ￥${basePrice.toFixed(2)} 偏差较大，确认继续吗？`
             );
             if (!confirmed) {
               setIsSubmitting(false);

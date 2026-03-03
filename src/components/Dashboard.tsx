@@ -4,6 +4,7 @@ import { TrendingUp, Users, ShoppingBag, AlertTriangle, PackageSearch, Medal } f
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import { parseAppDate } from '../lib/date';
+import { buildHistoricalPriceMap, getReferencePrice } from '../lib/pricing';
 import { loadMergedReturns, subscribeReturnsChanged, type ReturnRecord } from '../lib/returns';
 import { emitNavigate, setSalesHistoryJumpPayload } from '../lib/navigation';
 
@@ -317,13 +318,20 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
     return { systemNet, actual, diff, hasInput: actual > 0 };
   }, [sales, returnRecords, paymentInputs]);
 
+  const historicalPriceMap = useMemo(() => buildHistoricalPriceMap(sales), [sales]);
+
   const abnormalSales = useMemo(() => {
     const rows = sales
       .map((sale) => {
         const product = products.find((p) => p.id === sale.productId);
         const qty = Number(sale.quantity) || 0;
         const amount = Number(sale.totalAmount) || 0;
-        const standardPrice = Number(product?.price) || 0;
+        const historicalPrice = Number(historicalPriceMap.get(sale.productId)) || 0;
+        if (historicalPrice <= 0) return null;
+        const standardPrice = getReferencePrice({
+          product,
+          historicalPrice
+        });
         if (qty <= 0 || amount <= 0 || standardPrice <= 0) return null;
         const unitPrice = amount / qty;
         const deviation = Math.abs(unitPrice - standardPrice) / standardPrice;
@@ -344,7 +352,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
       .sort((a, b) => (parseAppDate(b.date)?.getTime() || 0) - (parseAppDate(a.date)?.getTime() || 0));
 
     return rows.slice(0, 8);
-  }, [sales, products]);
+  }, [sales, products, historicalPriceMap]);
 
   return (
     <div className="space-y-4 sm:space-y-6 pb-10">
