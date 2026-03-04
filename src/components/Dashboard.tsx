@@ -11,8 +11,61 @@ import { emitNavigate, setSalesHistoryJumpPayload } from '../lib/navigation';
 export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   const { sales, products, categories } = store;
   const [returnRecords, setReturnRecords] = useState<ReturnRecord[]>([]);
+  const DAILY_PAYMENTS_LOCAL_KEY = 'daily_payments_fallback_v1';
 
   type PaymentInput = { card: string; cash: string; transfer: string };
+
+  const readLocalPayments = (): Record<string, Record<string, PaymentInput>> => {
+    try {
+      const raw = localStorage.getItem(DAILY_PAYMENTS_LOCAL_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return {};
+      return parsed;
+    } catch {
+      return {};
+    }
+  };
+
+  const writeLocalPayments = (next: Record<string, Record<string, PaymentInput>>) => {
+    try {
+      localStorage.setItem(DAILY_PAYMENTS_LOCAL_KEY, JSON.stringify(next));
+    } catch {
+      // ignore local storage write failure
+    }
+  };
+
+  const getLocalPaymentByStore = (targetStoreId?: string) => {
+    if (!targetStoreId) return {} as Record<string, PaymentInput>;
+    const all = readLocalPayments();
+    return all[targetStoreId] || {};
+  };
+
+  const saveLocalPayment = (targetStoreId: string, date: string, input: PaymentInput) => {
+    const all = readLocalPayments();
+    const storePayments = all[targetStoreId] || {};
+    storePayments[date] = {
+      card: String(input.card ?? ''),
+      cash: String(input.cash ?? ''),
+      transfer: String(input.transfer ?? '')
+    };
+    all[targetStoreId] = storePayments;
+    writeLocalPayments(all);
+  };
+
+  const removeLocalPayment = (targetStoreId: string, date: string) => {
+    const all = readLocalPayments();
+    const storePayments = all[targetStoreId];
+    if (!storePayments) return;
+    if (!Object.prototype.hasOwnProperty.call(storePayments, date)) return;
+    delete storePayments[date];
+    if (Object.keys(storePayments).length === 0) {
+      delete all[targetStoreId];
+    } else {
+      all[targetStoreId] = storePayments;
+    }
+    writeLocalPayments(all);
+  };
 
   const stats = useMemo(() => {
     const totalSalesRevenue = sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
@@ -271,8 +324,31 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
             }
           });
         }
+
+        const localPayments = getLocalPaymentByStore(storeId);
+        Object.keys(nextInputs).forEach((dateKey) => {
+          const local = localPayments[dateKey];
+          if (!local) return;
+          nextInputs[dateKey] = {
+            card: String(local.card ?? nextInputs[dateKey].card ?? ''),
+            cash: String(local.cash ?? nextInputs[dateKey].cash ?? ''),
+            transfer: String(local.transfer ?? nextInputs[dateKey].transfer ?? '')
+          };
+        });
       } catch (err) {
         console.error('Failed to load daily payments:', err);
+        if (storeId) {
+          const localPayments = getLocalPaymentByStore(storeId);
+          Object.keys(nextInputs).forEach((dateKey) => {
+            const local = localPayments[dateKey];
+            if (!local) return;
+            nextInputs[dateKey] = {
+              card: String(local.card ?? nextInputs[dateKey].card ?? ''),
+              cash: String(local.cash ?? nextInputs[dateKey].cash ?? ''),
+              transfer: String(local.transfer ?? nextInputs[dateKey].transfer ?? '')
+            };
+          });
+        }
       }
 
       setPaymentInputs(nextInputs);
@@ -305,6 +381,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
         const fallbackErrorCodes = new Set(['42P10', 'PGRST204', 'PGRST205']);
         if (!fallbackErrorCodes.has(String((error as any)?.code || '').toUpperCase())) {
           console.error('Failed to save daily payment:', error);
+          saveLocalPayment(currentStoreId, date, input);
           return;
         }
 
@@ -317,6 +394,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
 
         if (queryError) {
           console.error('Failed to query daily payment before fallback save:', queryError);
+          saveLocalPayment(currentStoreId, date, input);
           return;
         }
 
@@ -333,7 +411,10 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
 
           if (updateError) {
             console.error('Failed to update daily payment in fallback save:', updateError);
+            saveLocalPayment(currentStoreId, date, input);
+            return;
           }
+          removeLocalPayment(currentStoreId, date);
           return;
         }
 
@@ -343,8 +424,14 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
 
         if (insertError) {
           console.error('Failed to insert daily payment in fallback save:', insertError);
+          saveLocalPayment(currentStoreId, date, input);
+          return;
         }
+        removeLocalPayment(currentStoreId, date);
+        return;
       }
+
+      removeLocalPayment(currentStoreId, date);
     }, 500);
   };
 
