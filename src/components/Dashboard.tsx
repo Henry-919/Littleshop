@@ -202,6 +202,20 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
   const saveTimers = useRef<Record<string, number>>({});
 
   useEffect(() => {
+    setSelectedMonth(null);
+    setPaymentInputs({});
+    Object.values(saveTimers.current).forEach((timerId) => window.clearTimeout(timerId));
+    saveTimers.current = {};
+  }, [storeId]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(saveTimers.current).forEach((timerId) => window.clearTimeout(timerId));
+      saveTimers.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
     if (!selectedMonth && monthlySales.length > 0) {
       setSelectedMonth(monthlySales[0].monthKey);
     }
@@ -209,9 +223,15 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
 
   useEffect(() => {
     const loadPayments = async () => {
-      if (!selectedMonth) return;
+      if (!selectedMonth) {
+        setPaymentInputs({});
+        return;
+      }
       const month = monthlySales.find(m => m.monthKey === selectedMonth);
-      if (!month) return;
+      if (!month) {
+        setPaymentInputs({});
+        return;
+      }
 
       const start = `${selectedMonth}-01`;
       const endDate = new Date(`${selectedMonth}-01T00:00:00`);
@@ -259,10 +279,11 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
     };
 
     loadPayments();
-  }, [selectedMonth, monthlySales]);
+  }, [selectedMonth, monthlySales, storeId]);
 
   const scheduleSavePayment = (date: string, input: PaymentInput) => {
     if (!storeId) return;
+    const currentStoreId = storeId;
     if (saveTimers.current[date]) {
       window.clearTimeout(saveTimers.current[date]);
     }
@@ -273,7 +294,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
         card_amount: Number(input.card) || 0,
         cash_amount: Number(input.cash) || 0,
         transfer_amount: Number(input.transfer) || 0,
-        store_id: storeId
+        store_id: currentStoreId
       };
 
       const { error } = await supabase
@@ -281,7 +302,48 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
         .upsert(payload, { onConflict: 'store_id,date' });
 
       if (error) {
-        console.error('Failed to save daily payment:', error);
+        const fallbackErrorCodes = new Set(['42P10', 'PGRST204', 'PGRST205']);
+        if (!fallbackErrorCodes.has(String((error as any)?.code || '').toUpperCase())) {
+          console.error('Failed to save daily payment:', error);
+          return;
+        }
+
+        const { data: existingRows, error: queryError } = await supabase
+          .from('daily_payments')
+          .select('date')
+          .eq('store_id', currentStoreId)
+          .eq('date', date)
+          .limit(1);
+
+        if (queryError) {
+          console.error('Failed to query daily payment before fallback save:', queryError);
+          return;
+        }
+
+        if (Array.isArray(existingRows) && existingRows.length > 0) {
+          const { error: updateError } = await supabase
+            .from('daily_payments')
+            .update({
+              card_amount: payload.card_amount,
+              cash_amount: payload.cash_amount,
+              transfer_amount: payload.transfer_amount
+            })
+            .eq('store_id', currentStoreId)
+            .eq('date', date);
+
+          if (updateError) {
+            console.error('Failed to update daily payment in fallback save:', updateError);
+          }
+          return;
+        }
+
+        const { error: insertError } = await supabase
+          .from('daily_payments')
+          .insert(payload);
+
+        if (insertError) {
+          console.error('Failed to insert daily payment in fallback save:', insertError);
+        }
       }
     }, 500);
   };
@@ -310,7 +372,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
     }, 0);
 
     const systemNet = todaySales - todayReturns;
-    const dayKey = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const dayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const payment = paymentInputs[dayKey] || { card: '', cash: '', transfer: '' };
     const actual = (Number(payment.card) || 0) + (Number(payment.cash) || 0) + (Number(payment.transfer) || 0);
     const diff = Number((systemNet - actual).toFixed(2));
