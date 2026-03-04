@@ -136,6 +136,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   const [transferMode, setTransferMode] = useState<'manual' | 'image'>('manual');
   const [manualProductName, setManualProductName] = useState('');
   const transferImageInputRef = useRef<HTMLInputElement>(null);
+  const transferManualInputRef = useRef<HTMLInputElement>(null);
   const [transferImageLoading, setTransferImageLoading] = useState(false);
   const [transferImageError, setTransferImageError] = useState<string | null>(null);
   const [transferImageRows, setTransferImageRows] = useState<Array<{ model: string; quantity: number; matchedProductId: string; score: number }>>([]);
@@ -678,6 +679,18 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     setIsTransferOpen(true);
   };
 
+  const focusTransferManualInput = () => {
+    window.setTimeout(() => {
+      transferManualInputRef.current?.focus();
+      transferManualInputRef.current?.select();
+    }, 0);
+  };
+
+  useEffect(() => {
+    if (!isTransferOpen || transferMode !== 'manual') return;
+    focusTransferManualInput();
+  }, [isTransferOpen, transferMode]);
+
   const resolveProductIdByModel = (model: string) => {
     const text = String(model || '').trim();
     if (!text) return { productId: '', score: 0 };
@@ -805,6 +818,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
       setTransferForm((prev) => ({ ...prev, productId: '', quantity: '1' }));
       setManualProductName('');
       await fetchData?.();
+      focusTransferManualInput();
       return;
     }
 
@@ -1501,6 +1515,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">或手动输入商品名</label>
                     <input
+                      ref={transferManualInputRef}
                       type="text"
                       value={manualProductName}
                       onChange={(e) => {
