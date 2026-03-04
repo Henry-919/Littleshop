@@ -179,6 +179,24 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
       || details.includes('stock_transfers');
   };
 
+  const manualMatch = useMemo(() => {
+    const text = String(manualProductName || '').trim();
+    if (!text) return { productId: '', productName: '', score: 0 };
+    const ranked = products
+      .map((p: any) => ({ id: p.id, name: String(p.name || ''), score: scoreModelSimilarity(text, String(p.name || '')) }))
+      .sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    if (!best || best.score < 0.7) return { productId: '', productName: '', score: best?.score || 0 };
+    return { productId: best.id, productName: best.name, score: best.score };
+  }, [manualProductName, products]);
+
+  useEffect(() => {
+    if (transferMode !== 'manual') return;
+    if (!manualProductName.trim()) return;
+    if (!manualMatch.productId) return;
+    setTransferForm((prev) => prev.productId === manualMatch.productId ? prev : { ...prev, productId: manualMatch.productId });
+  }, [transferMode, manualProductName, manualMatch.productId]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const media = window.matchMedia('(max-width: 767px)');
@@ -784,7 +802,8 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
       } else {
         alert(result?.message || '调货成功，已完成库存加减');
       }
-      setIsTransferOpen(false);
+      setTransferForm((prev) => ({ ...prev, productId: '', quantity: '1' }));
+      setManualProductName('');
       await fetchData?.();
       return;
     }
@@ -817,7 +836,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     await fetchData?.();
     if (failMessages.length === 0) {
       alert(`图片调货完成，共成功 ${successCount} 条`);
-      setIsTransferOpen(false);
+      setTransferImageRows([]);
       return;
     }
 
@@ -851,6 +870,14 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
     const now = new Date();
     const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
     XLSX.writeFile(wb, `调货识别结果_${stamp}.xlsx`);
+  };
+
+  const handleTransferManualEnter = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
+    if (transferMode !== 'manual') return;
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (transferSubmitting) return;
+    void handleTransferSubmit();
   };
 
   const deletedTotalPages = Math.max(1, Math.ceil(deletedProducts.length / DELETED_PAGE_SIZE));
@@ -1453,7 +1480,15 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                     <label className="block text-xs font-medium text-slate-500 mb-1">调出商品（可选择）</label>
                     <select
                       value={transferForm.productId}
-                      onChange={(e) => setTransferForm(prev => ({ ...prev, productId: e.target.value }))}
+                      onChange={(e) => {
+                        const nextProductId = e.target.value;
+                        const selectedProduct = products.find((p: any) => p.id === nextProductId);
+                        setTransferForm(prev => ({ ...prev, productId: nextProductId }));
+                        if (selectedProduct?.name) {
+                          setManualProductName(String(selectedProduct.name));
+                        }
+                      }}
+                      onKeyDown={handleTransferManualEnter}
                       className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                     >
                       <option value="">请选择商品</option>
@@ -1468,10 +1503,24 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                     <input
                       type="text"
                       value={manualProductName}
-                      onChange={(e) => setManualProductName(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setManualProductName(value);
+                        if (!value.trim()) {
+                          setTransferForm((prev) => ({ ...prev, productId: '' }));
+                        }
+                      }}
+                      onKeyDown={handleTransferManualEnter}
                       placeholder="例如：M-2504"
                       className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                     />
+                    {!!manualProductName.trim() && (
+                      <p className={`mt-1 text-[11px] ${manualMatch.productId ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {manualMatch.productId
+                          ? `已自动匹配：${manualMatch.productName}（匹配度 ${(manualMatch.score * 100).toFixed(1)}%）`
+                          : '未匹配到商品，提交时将尝试自动创建'}
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -1481,6 +1530,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
                       min="1"
                       value={transferForm.quantity}
                       onChange={(e) => setTransferForm(prev => ({ ...prev, quantity: e.target.value }))}
+                      onKeyDown={handleTransferManualEnter}
                       className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
                       placeholder="请输入数量"
                     />
