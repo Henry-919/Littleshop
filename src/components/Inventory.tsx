@@ -552,21 +552,32 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   // 行内编辑逻辑
   const startEditing = (p: any) => {
     setEditingId(p.id);
-    setEditFormData({ ...p, category_id: p.category_id || '' });
+    setEditFormData({
+      id: p.id,
+      name: p.name || '',
+      stock: p.stock ?? 0,
+      category_id: p.category_id || ''
+    });
   };
 
   const handleSaveEdit = async () => {
     if (!editingId || !updateProduct) return;
     const payload = {
-      ...editFormData,
+      name: String(editFormData?.name || '').trim(),
       stock: Number.isFinite(Number(editFormData?.stock)) ? Number(editFormData.stock) : 0,
       category_id: editFormData?.category_id || undefined
     };
+    if (!payload.name) {
+      alert('商品名称不能为空');
+      return;
+    }
     const success = await updateProduct(editingId, payload);
     if (success) {
       setEditingId(null);
       setEditFormData(null);
+      return;
     }
+    alert('保存失败，请重试');
   };
 
   const handleCancelEdit = () => {
