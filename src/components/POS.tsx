@@ -25,6 +25,18 @@ const POS_ENTRY_RECORDS_KEY = 'pos_entry_records_v1';
 const POS_ENTRY_RECORDS_LIMIT = 120;
 
 const normalizeText = (value: string) => String(value || '').trim().toLowerCase();
+const formatMoney = (value?: number | string | null) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return '-';
+  return amount.toFixed(2);
+};
+const formatMoneyInput = (value?: string | number | null) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const amount = Number(raw);
+  if (!Number.isFinite(amount)) return raw;
+  return amount.toFixed(2);
+};
 
 export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   const { products, categories, sales, addSale } = store;
@@ -299,7 +311,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                 if (found) {
                   setSelectedProductId(found.id);
                   setManualPrice('');
-                  setCostPrice(String(found.cost_price ?? found.price ?? 0));
+                  setCostPrice(formatMoney(found.cost_price ?? found.price ?? 0));
                 } else {
                   setSelectedProductId('');
                   setManualPrice('');
@@ -326,7 +338,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
             <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm">
               <Package className="w-4 h-4 text-emerald-600 shrink-0" />
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-emerald-800">
-                <span>成本价：<strong>￥{matchedProduct.cost_price ?? matchedProduct.price ?? '-'}</strong></span>
+                <span>成本价：<strong>￥{formatMoney(matchedProduct.cost_price ?? matchedProduct.price)}</strong></span>
                 <span>当前库存：<strong>{matchedProduct.stock}</strong></span>
               </div>
             </div>
@@ -375,6 +387,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
                     step="0.01"
                     value={costPrice}
                     onChange={(e) => setCostPrice(e.target.value)}
+                    onBlur={(e) => setCostPrice(formatMoneyInput(e.target.value))}
                     className="ui-input"
                     placeholder="必填"
                     required
