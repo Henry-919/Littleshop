@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { useStore } from '../hooks/useStore';
-import { Trash2, History, ReceiptText, User, X, Pencil, Check, XCircle, Search, Filter } from 'lucide-react';
+import { Trash2, History, ReceiptText, User, X, Pencil, Check, XCircle, Search, Filter, Download } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { formatZhDateTime, formatZhDateTimeShort, parseAppDate, toDateInputValue } from '../lib/date';
 import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
@@ -19,6 +20,7 @@ type EditingState = {
 
 export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
   const { sales, products, deleteSale, updateSale } = store;
+  const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
   const [showDeleted, setShowDeleted] = useState(false);
   const [deletedSales, setDeletedSales] = useState<any[]>([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
@@ -30,6 +32,8 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
   const [returnRecords, setReturnRecords] = useState<ReturnRecord[]>([]);
   const [highlightedSaleId, setHighlightedSaleId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const getProductName = (id: string) => {
     return products.find(p => p.id === id)?.name || '未知商品';
@@ -195,13 +199,17 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
 
     if (payload.saleId) {
       setHighlightedSaleId(payload.saleId);
+      const saleIndex = sortedSales.findIndex((sale) => sale.id === payload.saleId);
+      if (saleIndex >= 0) {
+        setCurrentPage(Math.floor(saleIndex / pageSize) + 1);
+      }
       window.setTimeout(() => {
         setHighlightedSaleId((prev) => (prev === payload.saleId ? null : prev));
       }, 3000);
     }
 
     setDateFilter('all');
-  }, [storeId, salespersonOptions]);
+  }, [storeId, salespersonOptions, sortedSales, pageSize]);
 
   useEffect(() => {
     let alive = true;
@@ -317,6 +325,82 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   );
 
   const filteredNetAmount = filteredSalesAmount - filteredReturnAmount;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, dateFilter, salespersonFilter, pageSize]);
+
+  useEffect(() => {
+    if (!highlightedSaleId) return;
+    const saleIndex = filteredSales.findIndex((sale) => sale.id === highlightedSaleId);
+    if (saleIndex < 0) return;
+    setCurrentPage(Math.floor(saleIndex / pageSize) + 1);
+  }, [highlightedSaleId, filteredSales, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSales.length / pageSize));
+
+  useEffect(() => {
+    setCurrentPage((prev) => Math.min(prev, totalPages));
+  }, [totalPages]);
+
+  const paginatedSales = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredSales.slice(start, start + pageSize);
+  }, [filteredSales, currentPage, pageSize]);
+
+  const visibleStart = filteredSales.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const visibleEnd = Math.min(currentPage * pageSize, filteredSales.length);
+  const pageNumbers = useMemo(() => {
+    if (totalPages <= 5) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    const start = Math.max(1, currentPage - 2);
+    const end = Math.min(totalPages, start + 4);
+    const adjustedStart = Math.max(1, end - 4);
+    return Array.from({ length: end - adjustedStart + 1 }, (_, index) => adjustedStart + index);
+  }, [currentPage, totalPages]);
+
+  const exportSalesToExcel = useCallback(() => {
+    if (filteredSales.length === 0) {
+      setFeedback({ type: 'error', text: 'No sales records to export.' });
+      return;
+    }
+
+    const rows = filteredSales.map((sale, index) => {
+      const quantity = Number(sale.quantity) || 0;
+      const totalAmount = Number(sale.totalAmount) || 0;
+      const unitPrice = quantity > 0 ? totalAmount / quantity : 0;
+
+      return {
+        Index: index + 1,
+        Date: formatZhDateTime(sale.date),
+        Product: getProductName(sale.productId),
+        Quantity: quantity,
+        UnitPrice: Number(unitPrice.toFixed(2)),
+        Amount: Number(totalAmount.toFixed(2)),
+        Salesperson: sale.salesperson || 'System'
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet['!cols'] = [
+      { wch: 8 },
+      { wch: 22 },
+      { wch: 28 },
+      { wch: 10 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 18 }
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'SalesHistory');
+
+    const today = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(workbook, `sales-history-${storeId || 'all'}-${today}.xlsx`);
+    setFeedback({ type: 'success', text: 'Sales history exported to Excel.' });
+  }, [filteredSales, storeId, products]);
 
   const loadDeletedSales = async () => {
     if (!storeId) return;
@@ -678,6 +762,13 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             <p className="text-2xl font-black text-emerald-600">￥{filteredNetAmount.toFixed(2)}</p>
           </div>
           <button
+            onClick={exportSalesToExcel}
+            className="px-3 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl font-bold transition-all border border-emerald-600 shadow-sm text-xs sm:text-sm whitespace-nowrap flex items-center gap-2"
+          >
+            <Download className="w-4 h-4" />
+            导出 Excel
+          </button>
+          <button
             onClick={async () => {
               setShowDeleted(true);
               await loadDeletedSales();
@@ -744,9 +835,54 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
         <p className="text-xs text-slate-400 mt-2">当前显示 {filteredSales.length} / {sales.length} 条 · 销售额 ￥{filteredSalesAmount.toFixed(2)} · 退货扣减 ￥{filteredReturnAmount.toFixed(2)} · 净额 ￥{filteredNetAmount.toFixed(2)}</p>
       </div>
 
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-3 sm:p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-sm text-slate-500">
+          当前显示第 {currentPage} 页，共 {totalPages} 页，记录 {visibleStart}-{visibleEnd} / {filteredSales.length}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-sm text-slate-500">每页</label>
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="px-3 py-2 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>{size} 条</option>
+            ))}
+          </select>
+          <button
+            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+            disabled={currentPage === 1}
+            className="px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            上一页
+          </button>
+          {pageNumbers.map((page) => (
+            <button
+              key={page}
+              onClick={() => setCurrentPage(page)}
+              className={`min-w-10 px-3 py-2 rounded-xl text-sm font-bold transition-all ${
+                page === currentPage
+                  ? 'bg-slate-900 text-white'
+                  : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {page}
+            </button>
+          ))}
+          <button
+            onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+            disabled={currentPage === totalPages}
+            className="px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            下一页
+          </button>
+        </div>
+      </div>
+
       {/* Mobile Card List */}
       <div className="sm:hidden space-y-2 px-0.5">
-        {filteredSales.map(sale => renderMobileCard(sale))}
+        {paginatedSales.map(sale => renderMobileCard(sale))}
         {filteredSales.length === 0 && (
           <div className="bg-white rounded-2xl border border-slate-100 py-16 flex flex-col items-center gap-2 text-slate-300">
             <History className="w-10 h-10 opacity-10" />
@@ -771,7 +907,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-50">
-              {filteredSales.map(sale => renderDesktopRow(sale))}
+              {paginatedSales.map(sale => renderDesktopRow(sale))}
               {filteredSales.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-20 text-center">
