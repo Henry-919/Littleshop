@@ -4,6 +4,7 @@ import { ShoppingBag, User, Plus, Search, CheckCircle2, Tag, Package, DollarSign
 import { formatZhDateTime } from '../lib/date';
 import { buildHistoricalPriceMap, getReferencePrice } from '../lib/pricing';
 import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
+import { ReadonlyNotice } from './ReadonlyNotice';
 
 type PosEntryRecord = {
   id: string;
@@ -38,7 +39,7 @@ const formatMoneyInput = (value?: string | number | null) => {
   return amount.toFixed(2);
 };
 
-export function POS({ store }: { store: ReturnType<typeof useStore> }) {
+export function POS({ store, canEdit = false }: { store: ReturnType<typeof useStore>; canEdit?: boolean }) {
   const { products, categories, sales, addSale } = store;
   
   // 状态管理
@@ -256,6 +257,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
+      {!canEdit && <ReadonlyNotice description="����¼��ҳ���Կɲ鿴����ֻ�й���Ա�����������ۺʹ�������Ʒ��" />}
 
       <div className="ui-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 bg-slate-50/50">
@@ -267,6 +269,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
         </div>
 
         <form onSubmit={handleCheckout} className="p-6 space-y-5">
+          <fieldset disabled={!canEdit} className="contents disabled:opacity-60">
           {/* 销售人员 + 日期（置顶，结算后不清空） */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -453,6 +456,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
           >
             {isSubmitting ? '处理中...' : <><CheckCircle2 className="w-5 h-5" /> 完成并录入结算</>}
           </button>
+          </fieldset>
         </form>
       </div>
 
@@ -463,6 +467,7 @@ export function POS({ store }: { store: ReturnType<typeof useStore> }) {
             <p className="text-xs text-slate-500 mt-0.5">按输入顺序保留，便于人工复核</p>
           </div>
           <button
+            disabled={!canEdit}
             onClick={() => persistEntryRecords([])}
             className="ui-btn-muted !px-3 !py-1.5 !text-xs !rounded-lg"
           >

@@ -12,7 +12,6 @@ create table if not exists public.stock_transfers (
   deleted_at timestamptz
 );
 
--- 兼容历史字段（老版本可能写入这些列）
 alter table public.stock_transfers add column if not exists product text;
 alter table public.stock_transfers add column if not exists qty integer;
 alter table public.stock_transfers add column if not exists from_store_id text;
@@ -22,7 +21,6 @@ alter table public.stock_transfers add column if not exists target_product_id te
 alter table public.stock_transfers add column if not exists created_at timestamptz;
 alter table public.stock_transfers add column if not exists deleted_at timestamptz;
 
--- 兼容旧库里 UUID/INT 等不同类型：统一转换为 text，避免 22P02
 alter table public.stock_transfers alter column source_store_id type text using source_store_id::text;
 alter table public.stock_transfers alter column target_store_id type text using target_store_id::text;
 alter table public.stock_transfers alter column from_store_id type text using from_store_id::text;
@@ -74,41 +72,7 @@ create index if not exists idx_stock_transfers_from_store on public.stock_transf
 create index if not exists idx_stock_transfers_to_store on public.stock_transfers(to_store_id);
 create index if not exists idx_stock_transfers_created_at on public.stock_transfers(created_at desc);
 
--- Supabase 权限与 RLS（解决 42501）
-grant select, insert, update, delete on table public.stock_transfers to anon;
-grant select, insert, update, delete on table public.stock_transfers to authenticated;
-grant select, insert, update, delete on table public.stock_transfers to service_role;
-
 alter table public.stock_transfers enable row level security;
 
-drop policy if exists stock_transfers_select_all on public.stock_transfers;
-create policy stock_transfers_select_all
-on public.stock_transfers
-for select
-to anon, authenticated
-using (true);
-
-drop policy if exists stock_transfers_insert_all on public.stock_transfers;
-create policy stock_transfers_insert_all
-on public.stock_transfers
-for insert
-to anon, authenticated
-with check (true);
-
-drop policy if exists stock_transfers_update_all on public.stock_transfers;
-create policy stock_transfers_update_all
-on public.stock_transfers
-for update
-to anon, authenticated
-using (true)
-with check (true);
-
-drop policy if exists stock_transfers_delete_all on public.stock_transfers;
-create policy stock_transfers_delete_all
-on public.stock_transfers
-for delete
-to anon, authenticated
-using (true);
-
--- 刷新 PostgREST schema cache，避免出现 “Could not find the table ... in the schema cache”
+-- Permissions are managed centrally by templates/app_rls.sql.
 notify pgrst, 'reload schema';

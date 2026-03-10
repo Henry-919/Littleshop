@@ -7,8 +7,9 @@ import { parseAppDate } from '../lib/date';
 import { buildHistoricalPriceMap, getReferencePrice } from '../lib/pricing';
 import { loadMergedReturns, subscribeReturnsChanged, type ReturnRecord } from '../lib/returns';
 import { emitNavigate, setSalesHistoryJumpPayload } from '../lib/navigation';
+import { ReadonlyNotice } from './ReadonlyNotice';
 
-export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
+export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnType<typeof useStore>; storeId?: string; canEdit?: boolean }) {
   const { sales, products, categories } = store;
   const [returnRecords, setReturnRecords] = useState<ReturnRecord[]>([]);
   const DAILY_PAYMENTS_LOCAL_KEY = 'daily_payments_fallback_v1';
@@ -505,6 +506,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
 
   return (
     <div className="space-y-4 sm:space-y-6 pb-10">
+      {!canEdit && <ReadonlyNotice description="�������ݿ������鿴����ÿ���տ����ֻ�й���Ա����¼�롣" />}
       {/* 欢迎头部 */}
       <div className="p-4 sm:p-6 bg-slate-900 rounded-2xl shadow-lg text-white relative overflow-hidden">
         <div className="relative z-10">
@@ -683,7 +685,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                                   setPaymentInputs(next);
                                   scheduleSavePayment(day.date, next[day.date]);
                                 }}
-                                className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                                disabled={!canEdit} className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-mono disabled:opacity-60"
                                 placeholder="0"
                               />
                             </div>
@@ -697,7 +699,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                                   setPaymentInputs(next);
                                   scheduleSavePayment(day.date, next[day.date]);
                                 }}
-                                className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                                disabled={!canEdit} className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-mono disabled:opacity-60"
                                 placeholder="0"
                               />
                             </div>
@@ -711,7 +713,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                                   setPaymentInputs(next);
                                   scheduleSavePayment(day.date, next[day.date]);
                                 }}
-                                className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-mono"
+                                disabled={!canEdit} className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-mono disabled:opacity-60"
                                 placeholder="0"
                               />
                             </div>
@@ -755,7 +757,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                                     setPaymentInputs(next);
                                     scheduleSavePayment(day.date, next[day.date]);
                                   }}
-                                  className="w-28 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                                  disabled={!canEdit} className="w-28 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60"
                                   placeholder="0"
                                 />
                               </td>
@@ -768,7 +770,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                                     setPaymentInputs(next);
                                     scheduleSavePayment(day.date, next[day.date]);
                                   }}
-                                  className="w-28 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                                  disabled={!canEdit} className="w-28 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60"
                                   placeholder="0"
                                 />
                               </td>
@@ -781,7 +783,7 @@ export function Dashboard({ store, storeId }: { store: ReturnType<typeof useStor
                                     setPaymentInputs(next);
                                     scheduleSavePayment(day.date, next[day.date]);
                                   }}
-                                  className="w-28 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                                  disabled={!canEdit} className="w-28 px-2 py-1 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none disabled:opacity-60"
                                   placeholder="0"
                                 />
                               </td>

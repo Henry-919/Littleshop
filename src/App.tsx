@@ -2,7 +2,10 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from
 import { useStore } from './hooks/useStore';
 import { supabase } from './lib/supabase';
 import { Sidebar, TabType } from './components/Sidebar';
-import { Menu } from 'lucide-react';
+import { LoginScreen } from './components/LoginScreen';
+import { ReadonlyNotice } from './components/ReadonlyNotice';
+import { useAuth } from './context/AuthContext';
+import { LogOut, Menu, Shield, UserRound } from 'lucide-react';
 import { subscribeNavigate } from './lib/navigation';
 
 const Dashboard = lazy(() => import('./components/Dashboard').then((m) => ({ default: m.Dashboard })));
@@ -15,26 +18,27 @@ const Stores = lazy(() => import('./components/Stores').then((m) => ({ default: 
 const Returns = lazy(() => import('./components/Returns').then((m) => ({ default: m.Returns })));
 
 const TAB_TITLES: Record<TabType, string> = {
-  dashboard: 'ç»è¥çœ‹æ¿',
-  pos: 'æ”¶é“¶ç»ˆç«¯',
-  inventory: 'åº“å­˜ç®¡ç†',
-  returns: 'é€€è´§ç®¡ç†',
-  categories: 'å•†å“åˆ†ç±»',
-  stores: 'é—¨åº—ç®¡ç†',
-  history: 'é”€å”®æµæ°´',
-  analytics: 'æ·±åº¦åˆ†æ'
+  dashboard: '¾­Óª¿´°å',
+  pos: 'ÊÕÒøÖÕ¶Ë',
+  inventory: '¿â´æ¹ÜÀí',
+  returns: 'ÍË»õ¹ÜÀí',
+  categories: 'ÉÌÆ··ÖÀà',
+  stores: 'ÃÅµê¹ÜÀí',
+  history: 'ÏúÊÛÁ÷Ë®',
+  analytics: 'Éî¶È·ÖÎö',
 };
 
 function PageLoadingFallback() {
   return (
     <div className="ui-card p-10 flex flex-col items-center justify-center gap-3 text-slate-500 min-h-[240px]">
       <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
-      <p className="text-sm">é¡µé¢åŠ è½½ä¸­...</p>
+      <p className="text-sm">Ò³Ãæ¼ÓÔØÖĞ...</p>
     </div>
   );
 }
 
 function App() {
+  const { loading: authLoading, session, user, role, canEdit, signOut } = useAuth();
   const [stores, setStores] = useState<{ id: string; name: string }[]>([]);
   const [storeId, setStoreId] = useState<string>('');
   const store = useStore(storeId || undefined);
@@ -42,29 +46,39 @@ function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const loadStores = useCallback(async () => {
+    if (!session) {
+      setStores([]);
+      setStoreId('');
+      return;
+    }
+
     const { data, error } = await supabase
       .from('stores')
       .select('id, name')
       .is('deleted_at', null)
       .order('name');
+
     if (error) {
       console.error('Failed to load stores:', error);
       return;
     }
+
     const list = data || [];
     setStores(list);
     if (!storeId && list.length > 0) {
       setStoreId(list[0].id);
       return;
     }
-    if (storeId && !list.some(item => item.id === storeId)) {
+    if (storeId && !list.some((item) => item.id === storeId)) {
       setStoreId(list[0]?.id || '');
     }
-  }, [storeId]);
+  }, [session, storeId]);
 
   useEffect(() => {
-    loadStores();
-  }, [loadStores]);
+    if (session) {
+      void loadStores();
+    }
+  }, [loadStores, session]);
 
   useEffect(() => {
     const unsubscribe = subscribeNavigate(({ tab }) => {
@@ -77,13 +91,13 @@ function App() {
   const content = useMemo(() => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard store={store} storeId={storeId} />;
+        return <Dashboard store={store} storeId={storeId} canEdit={canEdit} />;
       case 'pos':
-        return <POS store={store} />;
+        return <POS store={store} canEdit={canEdit} />;
       case 'inventory':
-        return <Inventory store={store} storeId={storeId} />;
+        return <Inventory store={store} storeId={storeId} canEdit={canEdit} />;
       case 'returns':
-        return <Returns store={store} storeId={storeId} />;
+        return <Returns store={store} storeId={storeId} canEdit={canEdit} />;
       case 'categories':
         return <Categories store={store} storeId={storeId} />;
       case 'stores':
@@ -93,66 +107,83 @@ function App() {
       case 'analytics':
         return <Analytics storeId={storeId} />;
       default:
-        return <Dashboard store={store} storeId={storeId} />;
+        return <Dashboard store={store} storeId={storeId} canEdit={canEdit} />;
     }
-  }, [activeTab, loadStores, store, storeId]);
+  }, [activeTab, canEdit, loadStores, store, storeId]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <PageLoadingFallback />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <LoginScreen />;
+  }
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
-      {/* ä¾§è¾¹å¯¼èˆªæ  */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        canEdit={canEdit}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
       />
 
-      {/* ä¸»å†…å®¹åŒºåŸŸ */}
       <main className="flex-1 h-full overflow-hidden flex flex-col">
-        {/* é¡¶éƒ¨çŠ¶æ€æ  - å¯é€‰ï¼šæ”¾ç½®æœç´¢æˆ–ç”¨æˆ·ä¿¡æ¯ */}
-        <header className="h-16 bg-white border-b border-slate-100 flex items-center justify-between px-4 md:px-8 shrink-0">
+        <header className="min-h-16 bg-white border-b border-slate-100 flex items-center justify-between px-4 md:px-8 py-3 shrink-0 gap-4">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setMobileMenuOpen(true)}
               className="md:hidden ui-btn-muted !p-2 !rounded-lg"
-              aria-label="æ‰“å¼€èœå•"
+              aria-label="´ò¿ª²Ëµ¥"
             >
               <Menu className="w-4 h-4" />
             </button>
-            <span className="hidden md:inline text-sm font-medium text-slate-400">å½“å‰ä½ç½® /</span>
+            <span className="hidden md:inline text-sm font-medium text-slate-400">µ±Ç°Î»ÖÃ /</span>
             <span className="text-xs md:text-sm font-bold text-slate-600">{TAB_TITLES[activeTab]}</span>
           </div>
-          
+
           <div className="flex items-center gap-2 md:gap-4">
             <div className="flex items-center gap-2">
-              <span className="hidden sm:inline text-xs text-slate-400">é—¨åº—</span>
+              <span className="hidden sm:inline text-xs text-slate-400">ÃÅµê</span>
               <select
                 value={storeId}
                 onChange={(e) => setStoreId(e.target.value)}
-                className="ui-select max-w-[120px] sm:max-w-none !py-1.5 !text-xs"
+                className="ui-select max-w-[140px] sm:max-w-none !py-1.5 !text-xs"
               >
-                {stores.length === 0 && (
-                  <option value="" disabled>æš‚æ— é—¨åº—</option>
-                )}
+                {stores.length === 0 && <option value="" disabled>ÔİÎŞÃÅµê</option>}
                 {stores.map((storeItem) => (
                   <option key={storeItem.id} value={storeItem.id}>{storeItem.name}</option>
                 ))}
               </select>
             </div>
+
             <div className="hidden md:block text-right">
-              <p className="text-xs font-bold text-slate-900">ç®¡ç†å‘˜è´¦å·</p>
-              <p className="text-[10px] text-emerald-500 font-medium">åœ¨çº¿æ¨¡å¼</p>
+              <p className="text-xs font-bold text-slate-900 flex items-center justify-end gap-1">
+                <UserRound className="w-3.5 h-3.5 text-slate-400" />
+                {user?.email || 'ÒÑµÇÂ¼ÓÃ»§'}
+              </p>
+              <p className={`text-[10px] font-medium inline-flex items-center gap-1 ${canEdit ? 'text-emerald-600' : 'text-amber-600'}`}>
+                <Shield className="w-3 h-3" />
+                {role === 'admin' ? '¹ÜÀíÔ±È¨ÏŞ' : 'Ö»¶ÁÈ¨ÏŞ'}
+              </p>
             </div>
-            <div className="hidden md:flex w-10 h-10 rounded-full bg-slate-100 border-2 border-white shadow-sm items-center justify-center font-bold text-slate-400">
-              AD
-            </div>
+
+            <button onClick={() => void signOut()} className="ui-btn-muted !px-3 !py-2 !rounded-xl text-xs">
+              <LogOut className="w-4 h-4" />
+              ÍË³ö
+            </button>
           </div>
         </header>
 
-        {/* é¡µé¢å†…å®¹å®¹å™¨ */}
         <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar bg-slate-50">
           <Suspense fallback={<PageLoadingFallback />}>
-            <section key={activeTab} className="max-w-7xl mx-auto page-enter">
+            <section key={activeTab} className="max-w-7xl mx-auto page-enter space-y-4">
+              {!canEdit && <ReadonlyNotice />}
               {content}
             </section>
           </Suspense>

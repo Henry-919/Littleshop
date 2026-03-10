@@ -5,6 +5,7 @@ import { formatZhDateTime } from '../lib/date';
 import { appendInboundLogs } from '../lib/inboundLog';
 import { supabase } from '../lib/supabase';
 import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
+import { ReadonlyNotice } from './ReadonlyNotice';
 import { emitReturnsChanged, loadLocalReturns, saveLocalReturns, type ReturnRecord } from '../lib/returns';
 
 const normalizeModel = (value: string) =>
@@ -22,7 +23,7 @@ const today = () => {
   return `${y}-${m}-${d}`;
 };
 
-export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
+export function Returns({ store, storeId, canEdit = false }: { store: ReturnType<typeof useStore>; storeId?: string; canEdit?: boolean }) {
   const { products = [], updateProduct } = store || {};
 
   const [productModel, setProductModel] = useState('');
@@ -74,7 +75,7 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
   };
 
   const handleSubmit = async () => {
-    if (submitting) return;
+    if (!canEdit || submitting) return;
 
     if (!storeId) {
       setFeedback({ type: 'error', text: '请先选择门店。' });
@@ -181,8 +182,10 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
   return (
     <div className="space-y-5 animate-in fade-in duration-500">
       <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
+      {!canEdit && <ReadonlyNotice description="�˻���¼�Կɲ鿴����ֻ�й���Ա�����ύ�˻���⡣" />}
 
       <form onSubmit={handleFormSubmit} className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+        <fieldset disabled={!canEdit} className="contents disabled:opacity-60">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-200">
             <RotateCcw className="w-6 h-6" />
@@ -266,6 +269,7 @@ export function Returns({ store, storeId }: { store: ReturnType<typeof useStore>
             {submitting ? '处理中...' : '提交退货并入库'}
           </button>
         </div>
+        </fieldset>
       </form>
 
       <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-slate-100 space-y-3">

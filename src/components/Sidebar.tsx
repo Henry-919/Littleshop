@@ -1,48 +1,46 @@
 import React from 'react';
 import { ShoppingCart, Package, BarChart3, History, LayoutDashboard, Store, Tags, Building2, RotateCcw } from 'lucide-react';
 
-// ç»Ÿä¸€ Tab ç±»å‹å®šä¹‰
 export type TabType = 'dashboard' | 'pos' | 'inventory' | 'returns' | 'history' | 'analytics' | 'categories' | 'stores';
 
 interface SidebarProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
+  canEdit?: boolean;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
 }
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: 'ç»è¥çœ‹æ¿', icon: LayoutDashboard },
-  { id: 'pos', label: 'æ”¶é“¶ç»ˆç«¯', icon: ShoppingCart },
-  { id: 'inventory', label: 'åº“å­˜ç®¡ç†', icon: Package },
-  { id: 'returns', label: 'é€€è´§ç®¡ç†', icon: RotateCcw },
-  { id: 'categories', label: 'å•†å“åˆ†ç±»', icon: Tags },
-  { id: 'stores', label: 'é—¨åº—ç®¡ç†', icon: Building2 },
-  { id: 'history', label: 'é”€å”®æµæ°´', icon: History },
-  { id: 'analytics', label: 'æ·±åº¦åˆ†æ', icon: BarChart3 },
+  { id: 'dashboard', label: '¾­Óª¿´°å', icon: LayoutDashboard },
+  { id: 'pos', label: 'ÊÕÒøÖÕ¶Ë', icon: ShoppingCart },
+  { id: 'inventory', label: '¿â´æ¹ÜÀí', icon: Package },
+  { id: 'returns', label: 'ÍË»õ¹ÜÀí', icon: RotateCcw },
+  { id: 'categories', label: 'ÉÌÆ··ÖÀà', icon: Tags },
+  { id: 'stores', label: 'ÃÅµê¹ÜÀí', icon: Building2 },
+  { id: 'history', label: 'ÏúÊÛÁ÷Ë®', icon: History },
+  { id: 'analytics', label: 'Éî¶È·ÖÎö', icon: BarChart3 },
 ] as const;
 
-export function Sidebar({ activeTab, setActiveTab, mobileOpen = false, onCloseMobile }: SidebarProps) {
+export function Sidebar({ activeTab, setActiveTab, canEdit = false, mobileOpen = false, onCloseMobile }: SidebarProps) {
   const renderNav = () => (
     <>
-      {/* Logo åŒºåŸŸ */}
       <div className="p-8">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-emerald-500 rounded-lg">
             <Store className="w-6 h-6 text-slate-950" />
           </div>
           <h1 className="text-xl font-black tracking-tighter text-white">
-            æ™ºé“ºåŠ©æ‰‹ <span className="text-emerald-400">Pro</span>
+            ÖÇÆÌÖúÊÖ <span className="text-emerald-400">Pro</span>
           </h1>
         </div>
       </div>
 
-      {/* å¯¼èˆªåŒºåŸŸ */}
       <nav className="flex-1 px-4 space-y-1.5">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
-          
+
           return (
             <button
               key={item.id}
@@ -50,43 +48,33 @@ export function Sidebar({ activeTab, setActiveTab, mobileOpen = false, onCloseMo
                 setActiveTab(item.id);
                 onCloseMobile?.();
               }}
-              className={`w-full flex items-center justify-between group px-4 py-3.5 rounded-xl transition-all duration-200 relative active:translate-y-px
-                ${isActive 
-                  ? 'bg-emerald-500/10 text-emerald-400 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.2)]' 
+              className={`w-full flex items-center justify-between group px-4 py-3.5 rounded-xl transition-all duration-200 relative active:translate-y-px ${
+                isActive
+                  ? 'bg-emerald-500/10 text-emerald-400 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.2)]'
                   : 'text-slate-400 hover:bg-slate-900/80 hover:text-white'
-                }`}
+              }`}
             >
               <div className="flex items-center space-x-3 z-10">
                 <Icon className={`w-5 h-5 transition-transform duration-300 ${isActive ? 'scale-110' : 'group-hover:scale-110'}`} />
                 <span className="font-bold tracking-wide">{item.label}</span>
               </div>
 
-              {/* æ¿€æ´»çŠ¶æ€çš„å³ä¾§å°åœ†ç‚¹ */}
-              {isActive && (
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />
-              )}
-              
-              {/* æ¿€æ´»çŠ¶æ€çš„å·¦ä¾§æŒ‡ç¤ºæ¡ */}
-              {isActive && (
-                <div className="absolute left-0 top-3 bottom-3 w-1 bg-emerald-500 rounded-r-full" />
-              )}
+              {isActive && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]" />}
+              {isActive && <div className="absolute left-0 top-3 bottom-3 w-1 bg-emerald-500 rounded-r-full" />}
             </button>
           );
         })}
       </nav>
 
-      {/* åº•éƒ¨ä¿¡æ¯ */}
       <div className="p-6">
         <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-800/50">
-          <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-1">ç³»ç»ŸçŠ¶æ€</p>
+          <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-1">µ±Ç°È¨ÏŞ</p>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs text-slate-300 font-medium">äº‘ç«¯è¿æ¥æ­£å¸¸</span>
+            <div className={`w-2 h-2 rounded-full ${canEdit ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
+            <span className="text-xs text-slate-300 font-medium">{canEdit ? '¹ÜÀíÔ±Ä£Ê½' : 'Ö»¶Á²é¿´Ä£Ê½'}</span>
           </div>
         </div>
-        <p className="mt-4 text-[10px] text-slate-600 text-center font-medium opacity-50">
-          &copy; 2026 æ™ºé“ºç®¡ç†ç³»ç»Ÿ v2.4
-        </p>
+        <p className="mt-4 text-[10px] text-slate-600 text-center font-medium opacity-50">&copy; 2026 ÖÇÆÌ¹ÜÀíÏµÍ³ v2.5</p>
       </div>
     </>
   );
@@ -99,11 +87,7 @@ export function Sidebar({ activeTab, setActiveTab, mobileOpen = false, onCloseMo
 
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-[120] flex">
-          <button
-            onClick={onCloseMobile}
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px]"
-            aria-label="å…³é—­å¯¼èˆª"
-          />
+          <button onClick={onCloseMobile} className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px]" aria-label="¹Ø±Õµ¼º½" />
           <div className="relative w-[84%] max-w-[320px] bg-slate-950 text-white flex flex-col h-full border-r border-slate-800/50 shadow-2xl page-enter">
             {renderNav()}
           </div>

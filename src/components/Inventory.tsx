@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { formatZhDateTime } from '../lib/date';
 import { appendInboundLogs, getInboundLogsByStore } from '../lib/inboundLog';
+import { ReadonlyNotice } from './ReadonlyNotice';
 
 const ExcelImporter = lazy(() => import('./ExcelImporter').then((m) => ({ default: m.ExcelImporter })));
 const StockBatchImporter = lazy(() => import('./StockBatchImporter').then((m) => ({ default: m.StockBatchImporter })));
@@ -104,7 +105,7 @@ const compressImageDataUrl = (
   });
 };
 
-export function Inventory({ store, storeId }: { store: ReturnType<typeof useStore>; storeId?: string }) {
+export function Inventory({ store, storeId, canEdit = false }: { store: ReturnType<typeof useStore>; storeId?: string; canEdit?: boolean }) {
   // 1. 防御性数据获取
   const products = store?.products || [];
   const categories = store?.categories || [];
@@ -604,7 +605,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   };
 
   const handleSaveEdit = async () => {
-    if (!editingId || !updateProduct) return;
+    if (!canEdit || !editingId || !updateProduct) return;
     const parsedStock = Number(editFormData?.stock);
     const parsedCostPrice = Number(editFormData?.cost_price);
     const payload = {
@@ -730,6 +731,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   };
 
   const handleOpenTransfer = () => {
+    if (!canEdit) return;
     setTransferForm({ productId: '', targetStoreId: '', quantity: '1' });
     setTransferMode('manual');
     setManualProductName('');
@@ -762,6 +764,7 @@ export function Inventory({ store, storeId }: { store: ReturnType<typeof useStor
   };
 
   const handleTransferImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canEdit) return;
     const file = e.target.files?.[0];
     if (!file) return;
     setTransferImageLoading(true);
