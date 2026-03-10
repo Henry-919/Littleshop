@@ -1,4 +1,4 @@
-const CACHE_NAME = 'xiaodian-v1';
+const CACHE_NAME = 'xiaodian-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -7,7 +7,7 @@ const ASSETS_TO_CACHE = [
     '/icon-512.svg'
 ];
 
-// 安装阶段：缓存静态资源
+// Install phase: cache static assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
@@ -24,7 +24,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// 激活阶段：清理旧缓存
+// Activate phase: clear old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -39,7 +39,7 @@ self.addEventListener('activate', (event) => {
   }
 });
 
-// 策略：网络优先，但排除 AI 接口
+// Strategy: network first, but exclude AI APIs
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 

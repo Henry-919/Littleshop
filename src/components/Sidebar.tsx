@@ -12,14 +12,14 @@ interface SidebarProps {
 }
 
 const NAV_ITEMS = [
-  { id: 'dashboard', label: '¾­Óª¿´°å', icon: LayoutDashboard },
-  { id: 'pos', label: 'ÊÕÒøÖÕ¶Ë', icon: ShoppingCart },
-  { id: 'inventory', label: '¿â´æ¹ÜÀí', icon: Package },
-  { id: 'returns', label: 'ÍË»õ¹ÜÀí', icon: RotateCcw },
-  { id: 'categories', label: 'ÉÌÆ··ÖÀà', icon: Tags },
-  { id: 'stores', label: 'ÃÅµê¹ÜÀí', icon: Building2 },
-  { id: 'history', label: 'ÏúÊÛÁ÷Ë®', icon: History },
-  { id: 'analytics', label: 'Éî¶È·ÖÎö', icon: BarChart3 },
+  { id: 'dashboard', label: 'ç»è¥çœ‹æ¿', icon: LayoutDashboard },
+  { id: 'pos', label: 'æ”¶é“¶ç»ˆç«¯', icon: ShoppingCart },
+  { id: 'inventory', label: 'åº“å­˜ç®¡ç†', icon: Package },
+  { id: 'returns', label: 'é€€è´§ç®¡ç†', icon: RotateCcw },
+  { id: 'categories', label: 'å•†å“åˆ†ç±»', icon: Tags },
+  { id: 'stores', label: 'é—¨åº—ç®¡ç†', icon: Building2 },
+  { id: 'history', label: 'é”€å”®æµæ°´', icon: History },
+  { id: 'analytics', label: 'æ·±åº¦åˆ†æ', icon: BarChart3 },
 ] as const;
 
 export function Sidebar({ activeTab, setActiveTab, canEdit = false, mobileOpen = false, onCloseMobile }: SidebarProps) {
@@ -31,7 +31,7 @@ export function Sidebar({ activeTab, setActiveTab, canEdit = false, mobileOpen =
             <Store className="w-6 h-6 text-slate-950" />
           </div>
           <h1 className="text-xl font-black tracking-tighter text-white">
-            ÖÇÆÌÖúÊÖ <span className="text-emerald-400">Pro</span>
+            æ™ºé“ºåŠ©æ‰‹ <span className="text-emerald-400">Pro</span>
           </h1>
         </div>
       </div>
@@ -68,13 +68,13 @@ export function Sidebar({ activeTab, setActiveTab, canEdit = false, mobileOpen =
 
       <div className="p-6">
         <div className="bg-slate-900/50 rounded-2xl p-4 border border-slate-800/50">
-          <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-1">µ±Ç°È¨ÏŞ</p>
+          <p className="text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black mb-1">å½“å‰æƒé™</p>
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${canEdit ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
-            <span className="text-xs text-slate-300 font-medium">{canEdit ? '¹ÜÀíÔ±Ä£Ê½' : 'Ö»¶Á²é¿´Ä£Ê½'}</span>
+            <span className="text-xs text-slate-300 font-medium">{canEdit ? 'ç®¡ç†å‘˜æ¨¡å¼' : 'åªè¯»æŸ¥çœ‹æ¨¡å¼'}</span>
           </div>
         </div>
-        <p className="mt-4 text-[10px] text-slate-600 text-center font-medium opacity-50">&copy; 2026 ÖÇÆÌ¹ÜÀíÏµÍ³ v2.5</p>
+        <p className="mt-4 text-[10px] text-slate-600 text-center font-medium opacity-50">&copy; 2026 æ™ºé“ºç®¡ç†ç³»ç»Ÿ v2.5</p>
       </div>
     </>
   );
@@ -87,7 +87,7 @@ export function Sidebar({ activeTab, setActiveTab, canEdit = false, mobileOpen =
 
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-[120] flex">
-          <button onClick={onCloseMobile} className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px]" aria-label="¹Ø±Õµ¼º½" />
+          <button onClick={onCloseMobile} className="absolute inset-0 bg-slate-900/60 backdrop-blur-[1px]" aria-label="å…³é—­å¯¼èˆª" />
           <div className="relative w-[84%] max-w-[320px] bg-slate-950 text-white flex flex-col h-full border-r border-slate-800/50 shadow-2xl page-enter">
             {renderNav()}
           </div>

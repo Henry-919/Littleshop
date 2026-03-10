@@ -36,17 +36,17 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   const [pageSize, setPageSize] = useState(20);
 
   const getProductName = (id: string) => {
-    return products.find(p => p.id === id)?.name || 'Î´ÖªÉÌÆ·';
+    return products.find(p => p.id === id)?.name || 'æœªçŸ¥å•†å“';
   };
 
   const handleDelete = async (saleId: string) => {
-    if (window.confirm('È·¶¨Òª³·ÏúÕâÌõÏúÊÛ¼ÇÂ¼Âğ£¿\n³·Ïúºó¸ÃÉÌÆ·µÄ¿â´æ½«×Ô¶¯»¹Ô­¡£')) {
+    if (window.confirm('ç¡®å®šè¦æ’¤é”€è¿™æ¡é”€å”®è®°å½•å—ï¼Ÿ\næ’¤é”€åè¯¥å•†å“çš„åº“å­˜å°†è‡ªåŠ¨è¿˜åŸã€‚')) {
       const ok = await deleteSale(saleId);
       if (ok) {
-        setFeedback({ type: 'success', text: 'ÏúÊÛ¼ÇÂ¼ÒÑ³·Ïú£¬¿â´æÒÑ×Ô¶¯»¹Ô­¡£' });
+        setFeedback({ type: 'success', text: 'é”€å”®è®°å½•å·²æ’¤é”€ï¼Œåº“å­˜å·²è‡ªåŠ¨è¿˜åŸã€‚' });
         if (editing?.saleId === saleId) setEditing(null);
       } else {
-        setFeedback({ type: 'error', text: '³·ÏúÊ§°Ü£¬ÇëÉÔºóÖØÊÔ¡£' });
+        setFeedback({ type: 'error', text: 'æ’¤é”€å¤±è´¥ï¼Œè¯·ç¨åé‡è¯•ã€‚' });
       }
     }
   };
@@ -138,11 +138,11 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
     const qty = parseInt(editing.quantity, 10);
     const amt = parseFloat(editing.totalAmount);
     if (!Number.isFinite(qty) || qty <= 0) {
-      setFeedback({ type: 'error', text: 'ÊıÁ¿±ØĞë´óÓÚ 0¡£' });
+      setFeedback({ type: 'error', text: 'æ•°é‡å¿…é¡»å¤§äº 0ã€‚' });
       return;
     }
     if (!Number.isFinite(amt) || amt < 0) {
-      setFeedback({ type: 'error', text: '½ğ¶î±ØĞë´óÓÚ»òµÈÓÚ 0¡£' });
+      setFeedback({ type: 'error', text: 'é‡‘é¢å¿…é¡»å¤§äºæˆ–ç­‰äº 0ã€‚' });
       return;
     }
 
@@ -157,9 +157,9 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
       });
       if (ok) {
         setEditing(null);
-        setFeedback({ type: 'success', text: 'ÏúÊÛ¼ÇÂ¼ÒÑ±£´æ¡£' });
+        setFeedback({ type: 'success', text: 'é”€å”®è®°å½•å·²ä¿å­˜ã€‚' });
       } else {
-        setFeedback({ type: 'error', text: '±£´æÊ§°Ü£¬ÇëÉÔºóÖØÊÔ¡£' });
+        setFeedback({ type: 'error', text: 'ä¿å­˜å¤±è´¥ï¼Œè¯·ç¨åé‡è¯•ã€‚' });
       }
     } finally {
       setSaving(false);
@@ -428,7 +428,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
         <div key={sale.id} className="bg-sky-50/80 border border-sky-200 rounded-xl p-3 space-y-2.5">
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-[10px] text-slate-500 font-medium">ÈÕÆÚ</label>
+              <label className="text-[10px] text-slate-500 font-medium">æ—¥æœŸ</label>
               <input
                 type="date"
                 value={editing.date}
@@ -438,19 +438,19 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               />
             </div>
             <div>
-              <label className="text-[10px] text-slate-500 font-medium">ÊÕÒøÔ±</label>
+              <label className="text-[10px] text-slate-500 font-medium">æ”¶é“¶å‘˜</label>
               <input
                 type="text"
                 value={editing.salesperson}
                 onChange={e => setEditing({ ...editing, salesperson: e.target.value })}
                 onKeyDown={handleEditKeyDown}
                 className="w-full px-2 py-2 border border-sky-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-400 outline-none bg-white"
-                placeholder="ÊÕÒøÔ±"
+                placeholder="æ”¶é“¶å‘˜"
               />
             </div>
           </div>
           <div>
-            <label className="text-[10px] text-slate-500 font-medium">ÉÌÆ·</label>
+            <label className="text-[10px] text-slate-500 font-medium">å•†å“</label>
             <select
               value={editing.productId}
               onChange={e => setEditing({ ...editing, productId: e.target.value })}
@@ -464,7 +464,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="text-[10px] text-slate-500 font-medium">ÊıÁ¿</label>
+              <label className="text-[10px] text-slate-500 font-medium">æ•°é‡</label>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -491,7 +491,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               </div>
             </div>
             <div>
-              <label className="text-[10px] text-slate-500 font-medium">µ¥¼Û (£¤)</label>
+              <label className="text-[10px] text-slate-500 font-medium">å•ä»· (ï¿¥)</label>
               <input
                 type="number"
                 step="0.01"
@@ -503,7 +503,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               />
             </div>
             <div>
-              <label className="text-[10px] text-slate-500 font-medium">½ğ¶î (£¤)</label>
+              <label className="text-[10px] text-slate-500 font-medium">é‡‘é¢ (ï¿¥)</label>
               <input
                 type="number"
                 step="0.01"
@@ -515,21 +515,21 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               />
             </div>
           </div>
-          <div className="text-[11px] text-slate-500">¿ì½İ¼ü£ºEnter ±£´æ£¬Esc È¡Ïû</div>
+          <div className="text-[11px] text-slate-500">å¿«æ·é”®ï¼šEnter ä¿å­˜ï¼ŒEsc å–æ¶ˆ</div>
           <div className="flex gap-2 pt-1">
             <button
               onClick={saveEdit}
               disabled={saving}
               className="flex-1 py-2 bg-emerald-500 text-white rounded-lg text-xs font-bold disabled:opacity-50 flex items-center justify-center gap-1"
             >
-              <Check className="w-3.5 h-3.5" /> ±£´æ
+              <Check className="w-3.5 h-3.5" /> ä¿å­˜
             </button>
             <button
               onClick={cancelEdit}
               disabled={saving}
               className="flex-1 py-2 bg-white text-slate-600 border border-slate-200 rounded-lg text-xs font-bold disabled:opacity-50 flex items-center justify-center gap-1"
             >
-              <XCircle className="w-3.5 h-3.5" /> È¡Ïû
+              <XCircle className="w-3.5 h-3.5" /> å–æ¶ˆ
             </button>
           </div>
         </div>
@@ -541,29 +541,29 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="font-bold text-slate-800 text-sm truncate">{getProductName(sale.productId)}</span>
-            <span className="shrink-0 px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-mono text-[11px]">¡Á{sale.quantity}</span>
+            <span className="shrink-0 px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-mono text-[11px]">Ã—{sale.quantity}</span>
           </div>
           <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
             <span>{formatZhDateTimeShort(date)}</span>
-            <span>¡¤</span>
-            <span>{sale.salesperson || 'ÏµÍ³Ä¬ÈÏ'}</span>
+            <span>Â·</span>
+            <span>{sale.salesperson || 'ç³»ç»Ÿé»˜è®¤'}</span>
           </div>
         </div>
         <div className="text-right shrink-0">
-          <div className="font-black text-emerald-600 text-sm">£¤{Number(totalAmount).toFixed(2)}</div>
+          <div className="font-black text-emerald-600 text-sm">ï¿¥{Number(totalAmount).toFixed(2)}</div>
         </div>
         <div className="flex flex-col gap-0.5 shrink-0">
           <button
             onClick={() => startEdit(sale)}
             className="p-1.5 text-slate-300 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-all"
-            title="±à¼­"
+            title="ç¼–è¾‘"
           >
             <Pencil className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => handleDelete(sale.id)}
             className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
-            title="³·Ïú"
+            title="æ’¤é”€"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -630,8 +630,8 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
           </td>
           <td className="px-6 py-3">
             <div className="flex items-center gap-1 mb-1">
-              <span className="text-xs text-slate-400">µ¥¼Û</span>
-              <span className="text-sm text-slate-400">£¤</span>
+              <span className="text-xs text-slate-400">å•ä»·</span>
+              <span className="text-sm text-slate-400">ï¿¥</span>
               <input
                 type="number"
                 step="0.01"
@@ -643,8 +643,8 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               />
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-xs text-slate-400">½ğ¶î</span>
-              <span className="text-sm text-slate-400">£¤</span>
+              <span className="text-xs text-slate-400">é‡‘é¢</span>
+              <span className="text-sm text-slate-400">ï¿¥</span>
               <input
                 type="number"
                 step="0.01"
@@ -663,9 +663,9 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               onChange={e => setEditing({ ...editing, salesperson: e.target.value })}
               onKeyDown={handleEditKeyDown}
               className="w-full px-2 py-1.5 border border-sky-200 rounded-lg text-sm focus:ring-2 focus:ring-sky-400 outline-none"
-              placeholder="ÊÕÒøÔ±"
+              placeholder="æ”¶é“¶å‘˜"
             />
-            <div className="text-[10px] text-slate-400 mt-1">Enter ±£´æ / Esc È¡Ïû</div>
+            <div className="text-[10px] text-slate-400 mt-1">Enter ä¿å­˜ / Esc å–æ¶ˆ</div>
           </td>
           <td className="px-6 py-3 text-right">
             <div className="flex items-center justify-end gap-1">
@@ -673,7 +673,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                 onClick={saveEdit}
                 disabled={saving}
                 className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all disabled:opacity-50"
-                title="±£´æ"
+                title="ä¿å­˜"
               >
                 <Check className="w-4 h-4" />
               </button>
@@ -681,7 +681,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                 onClick={cancelEdit}
                 disabled={saving}
                 className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg transition-all disabled:opacity-50"
-                title="È¡Ïû"
+                title="å–æ¶ˆ"
               >
                 <XCircle className="w-4 h-4" />
               </button>
@@ -708,12 +708,12 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
           </span>
         </td>
         <td className="px-6 py-4 font-black text-emerald-600 text-sm">
-          £¤{Number(totalAmount).toFixed(2)}
+          ï¿¥{Number(totalAmount).toFixed(2)}
         </td>
         <td className="px-6 py-4">
           <div className="flex items-center gap-1.5 text-slate-500 text-sm">
             <User className="w-3.5 h-3.5" />
-            {sale.salesperson || 'ÏµÍ³Ä¬ÈÏ'}
+            {sale.salesperson || 'ç³»ç»Ÿé»˜è®¤'}
           </div>
         </td>
         <td className="px-6 py-4 text-right">
@@ -721,14 +721,14 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             <button
               onClick={() => startEdit(sale)}
               className="p-2 text-slate-300 hover:text-sky-500 hover:bg-sky-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-              title="±à¼­"
+              title="ç¼–è¾‘"
             >
               <Pencil className="w-4 h-4" />
             </button>
             <button
               onClick={() => handleDelete(sale.id)}
               className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-              title="³·Ïú´Ëµ¥"
+              title="æ’¤é”€æ­¤å•"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -747,26 +747,26 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             <History className="w-5 h-5 sm:w-6 sm:h-6" />
           </div>
           <div>
-            <h2 className="text-lg sm:text-2xl font-bold text-slate-900">ÏúÊÛÁ÷Ë®</h2>
-            <p className="text-slate-500 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">²é¿´²¢¹ÜÀí½üÆÚµÄËùÓĞ½»Ò×¼ÇÂ¼</p>
-            <p className="text-slate-400 text-xs sm:hidden mt-0.5">{sales.length} Ìõ¼ÇÂ¼</p>
+            <h2 className="text-lg sm:text-2xl font-bold text-slate-900">é”€å”®æµæ°´</h2>
+            <p className="text-slate-500 text-xs sm:text-sm mt-0.5 sm:mt-1 hidden sm:block">æŸ¥çœ‹å¹¶ç®¡ç†è¿‘æœŸçš„æ‰€æœ‰äº¤æ˜“è®°å½•</p>
+            <p className="text-slate-400 text-xs sm:hidden mt-0.5">{sales.length} æ¡è®°å½•</p>
           </div>
         </div>
         <div className="flex items-center gap-3 sm:gap-4">
           <div className="hidden md:block text-right">
-            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">×Ü½»Ò×Êı</p>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">æ€»äº¤æ˜“æ•°</p>
             <p className="text-2xl font-black text-slate-900">{sales.length}</p>
           </div>
           <div className="hidden md:block text-right">
-            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">¾»³É½»¶î</p>
-            <p className="text-2xl font-black text-emerald-600">£¤{filteredNetAmount.toFixed(2)}</p>
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">å‡€æˆäº¤é¢</p>
+            <p className="text-2xl font-black text-emerald-600">ï¿¥{filteredNetAmount.toFixed(2)}</p>
           </div>
           <button
             onClick={exportSalesToExcel}
             className="px-3 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl font-bold transition-all border border-emerald-600 shadow-sm text-xs sm:text-sm whitespace-nowrap flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
-            µ¼³ö Excel
+            å¯¼å‡º Excel
           </button>
           <button
             onClick={async () => {
@@ -775,14 +775,14 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             }}
             className="px-3 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl font-bold transition-all border border-slate-900 shadow-sm text-xs sm:text-sm whitespace-nowrap"
           >
-            É¾³ı¼ÇÂ¼
+            åˆ é™¤è®°å½•
           </button>
         </div>
       </div>
 
       <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
 
-      {/* ËÑË÷ÓëÉ¸Ñ¡ */}
+      {/* æœç´¢ä¸ç­›é€‰ */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-3 sm:p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[minmax(260px,1.2fr)_minmax(160px,0.8fr)_minmax(180px,1fr)_auto] gap-2 sm:gap-3 items-stretch">
           <div className="relative">
@@ -791,7 +791,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="ËÑË÷ÉÌÆ·Ãû»òÊÕÒøÔ±"
+              placeholder="æœç´¢å•†å“åæˆ–æ”¶é“¶å‘˜"
               className="w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
@@ -803,10 +803,10 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
               onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)}
               className="w-full pl-10 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
             >
-              <option value="all">Ê±¼ä£ºÈ«²¿</option>
-              <option value="today">Ê±¼ä£º½ñÌì</option>
-              <option value="7d">Ê±¼ä£º½ü7Ìì</option>
-              <option value="month">Ê±¼ä£º±¾ÔÂ</option>
+              <option value="all">æ—¶é—´ï¼šå…¨éƒ¨</option>
+              <option value="today">æ—¶é—´ï¼šä»Šå¤©</option>
+              <option value="7d">æ—¶é—´ï¼šè¿‘7å¤©</option>
+              <option value="month">æ—¶é—´ï¼šæœ¬æœˆ</option>
             </select>
           </div>
 
@@ -815,7 +815,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             onChange={(e) => setSalespersonFilter(e.target.value)}
             className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
           >
-            <option value="all">ÊÕÒøÔ±£ºÈ«²¿</option>
+            <option value="all">æ”¶é“¶å‘˜ï¼šå…¨éƒ¨</option>
             {salespersonOptions.map((name) => (
               <option key={name} value={name}>{name}</option>
             ))}
@@ -829,25 +829,25 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             }}
             className="w-full lg:w-auto px-3 py-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold text-sm transition-all"
           >
-            Çå¿Õ
+            æ¸…ç©º
           </button>
         </div>
-        <p className="text-xs text-slate-400 mt-2">µ±Ç°ÏÔÊ¾ {filteredSales.length} / {sales.length} Ìõ ¡¤ ÏúÊÛ¶î £¤{filteredSalesAmount.toFixed(2)} ¡¤ ÍË»õ¿Û¼õ £¤{filteredReturnAmount.toFixed(2)} ¡¤ ¾»¶î £¤{filteredNetAmount.toFixed(2)}</p>
+        <p className="text-xs text-slate-400 mt-2">å½“å‰æ˜¾ç¤º {filteredSales.length} / {sales.length} æ¡ Â· é”€å”®é¢ ï¿¥{filteredSalesAmount.toFixed(2)} Â· é€€è´§æ‰£å‡ ï¿¥{filteredReturnAmount.toFixed(2)} Â· å‡€é¢ ï¿¥{filteredNetAmount.toFixed(2)}</p>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-3 sm:p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-slate-500">
-          µ±Ç°ÏÔÊ¾µÚ {currentPage} Ò³£¬¹² {totalPages} Ò³£¬¼ÇÂ¼ {visibleStart}-{visibleEnd} / {filteredSales.length}
+          å½“å‰æ˜¾ç¤ºç¬¬ {currentPage} é¡µï¼Œå…± {totalPages} é¡µï¼Œè®°å½• {visibleStart}-{visibleEnd} / {filteredSales.length}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm text-slate-500">Ã¿Ò³</label>
+          <label className="text-sm text-slate-500">æ¯é¡µ</label>
           <select
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
             className="px-3 py-2 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
           >
             {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>{size} Ìõ</option>
+              <option key={size} value={size}>{size} æ¡</option>
             ))}
           </select>
           <button
@@ -855,7 +855,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             disabled={currentPage === 1}
             className="px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            ÉÏÒ»Ò³
+            ä¸Šä¸€é¡µ
           </button>
           {pageNumbers.map((page) => (
             <button
@@ -875,7 +875,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             disabled={currentPage === totalPages}
             className="px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            ÏÂÒ»Ò³
+            ä¸‹ä¸€é¡µ
           </button>
         </div>
       </div>
@@ -886,8 +886,8 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
         {filteredSales.length === 0 && (
           <div className="bg-white rounded-2xl border border-slate-100 py-16 flex flex-col items-center gap-2 text-slate-300">
             <History className="w-10 h-10 opacity-10" />
-            <p className="text-base font-medium">ÔİÎŞÆ¥Åä¼ÇÂ¼</p>
-            <p className="text-xs">Çëµ÷ÕûËÑË÷´Ê»òÉ¸Ñ¡Ìõ¼ş</p>
+            <p className="text-base font-medium">æš‚æ— åŒ¹é…è®°å½•</p>
+            <p className="text-xs">è¯·è°ƒæ•´æœç´¢è¯æˆ–ç­›é€‰æ¡ä»¶</p>
           </div>
         )}
       </div>
@@ -898,12 +898,12 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
           <table className="w-full min-w-[700px] text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50 text-slate-500 text-xs uppercase tracking-wider">
-                <th className="px-6 py-4 font-semibold">½»Ò×Ê±¼ä</th>
-                <th className="px-6 py-4 font-semibold">ÉÌÆ·ÏêÇé</th>
-                <th className="px-6 py-4 font-semibold">ÊıÁ¿</th>
-                <th className="px-6 py-4 font-semibold">³É½»½ğ¶î</th>
-                <th className="px-6 py-4 font-semibold">ÊÕÒøÔ±</th>
-                <th className="px-6 py-4 font-semibold text-right">²Ù×÷</th>
+                <th className="px-6 py-4 font-semibold">äº¤æ˜“æ—¶é—´</th>
+                <th className="px-6 py-4 font-semibold">å•†å“è¯¦æƒ…</th>
+                <th className="px-6 py-4 font-semibold">æ•°é‡</th>
+                <th className="px-6 py-4 font-semibold">æˆäº¤é‡‘é¢</th>
+                <th className="px-6 py-4 font-semibold">æ”¶é“¶å‘˜</th>
+                <th className="px-6 py-4 font-semibold text-right">æ“ä½œ</th>
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-slate-50">
@@ -913,8 +913,8 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                   <td colSpan={6} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center gap-2 text-slate-300">
                       <History className="w-12 h-12 opacity-10" />
-                      <p className="text-lg font-medium">ÔİÎŞÆ¥Åä¼ÇÂ¼</p>
-                      <p className="text-sm">Çëµ÷ÕûËÑË÷´Ê»òÉ¸Ñ¡Ìõ¼ş</p>
+                      <p className="text-lg font-medium">æš‚æ— åŒ¹é…è®°å½•</p>
+                      <p className="text-sm">è¯·è°ƒæ•´æœç´¢è¯æˆ–ç­›é€‰æ¡ä»¶</p>
                     </div>
                   </td>
                 </tr>
@@ -929,7 +929,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-end sm:items-center justify-center sm:p-4">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-4xl max-h-[85vh] sm:max-h-[80vh] overflow-hidden border border-slate-100 flex flex-col">
             <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <h3 className="text-base sm:text-lg font-bold text-slate-900">É¾³ı¼ÇÂ¼ - ÏúÊÛ</h3>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">åˆ é™¤è®°å½• - é”€å”®</h3>
               <button
                 onClick={() => setShowDeleted(false)}
                 className="p-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-all"
@@ -939,9 +939,9 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
             </div>
             <div className="p-4 sm:p-6 overflow-y-auto flex-1">
               {deletedLoading ? (
-                <div className="text-slate-400 text-sm">¼ÓÔØÖĞ...</div>
+                <div className="text-slate-400 text-sm">åŠ è½½ä¸­...</div>
               ) : deletedSales.length === 0 ? (
-                <div className="text-slate-400 text-sm">ÔİÎŞÉ¾³ı¼ÇÂ¼</div>
+                <div className="text-slate-400 text-sm">æš‚æ— åˆ é™¤è®°å½•</div>
               ) : (
                 <>
                   {/* Mobile deleted cards */}
@@ -950,13 +950,13 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                       <div key={item.id} className="bg-slate-50 rounded-xl p-3">
                         <div className="flex items-center justify-between">
                           <span className="font-medium text-slate-700 text-sm truncate">
-                            {products.find(p => p.id === item.product_id)?.name || 'Î´ÖªÉÌÆ·'}
+                            {products.find(p => p.id === item.product_id)?.name || 'æœªçŸ¥å•†å“'}
                           </span>
-                          <span className="text-emerald-600 font-bold text-sm">£¤{Number(item.total_amount || 0).toFixed(2)}</span>
+                          <span className="text-emerald-600 font-bold text-sm">ï¿¥{Number(item.total_amount || 0).toFixed(2)}</span>
                         </div>
                         <div className="flex items-center justify-between mt-1.5 text-[11px] text-slate-400">
-                          <span>¡Á{item.quantity}</span>
-                          <span>É¾³ıÓÚ {formatZhDateTimeShort(item.deleted_at)}</span>
+                          <span>Ã—{item.quantity}</span>
+                          <span>åˆ é™¤äº {formatZhDateTimeShort(item.deleted_at)}</span>
                         </div>
                       </div>
                     ))}
@@ -966,11 +966,11 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                     <table className="w-full text-left text-sm">
                       <thead>
                         <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                          <th className="px-6 py-3">ÈÕÆÚ</th>
-                          <th className="px-6 py-3">ÉÌÆ·</th>
-                          <th className="px-6 py-3">ÊıÁ¿</th>
-                          <th className="px-6 py-3">½ğ¶î</th>
-                          <th className="px-6 py-3">É¾³ıÊ±¼ä</th>
+                          <th className="px-6 py-3">æ—¥æœŸ</th>
+                          <th className="px-6 py-3">å•†å“</th>
+                          <th className="px-6 py-3">æ•°é‡</th>
+                          <th className="px-6 py-3">é‡‘é¢</th>
+                          <th className="px-6 py-3">åˆ é™¤æ—¶é—´</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -980,10 +980,10 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
                               {formatZhDateTime(item.date)}
                             </td>
                             <td className="px-6 py-3 font-medium text-slate-700">
-                              {products.find(p => p.id === item.product_id)?.name || 'Î´ÖªÉÌÆ·'}
+                              {products.find(p => p.id === item.product_id)?.name || 'æœªçŸ¥å•†å“'}
                             </td>
                             <td className="px-6 py-3 text-slate-500">{item.quantity}</td>
-                            <td className="px-6 py-3 text-emerald-600 font-bold">£¤{Number(item.total_amount || 0).toFixed(2)}</td>
+                            <td className="px-6 py-3 text-emerald-600 font-bold">ï¿¥{Number(item.total_amount || 0).toFixed(2)}</td>
                             <td className="px-6 py-3 text-slate-500">
                               {formatZhDateTime(item.deleted_at)}
                             </td>

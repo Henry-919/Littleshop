@@ -18,21 +18,21 @@ const Stores = lazy(() => import('./components/Stores').then((m) => ({ default: 
 const Returns = lazy(() => import('./components/Returns').then((m) => ({ default: m.Returns })));
 
 const TAB_TITLES: Record<TabType, string> = {
-  dashboard: '¾­Óª¿´°å',
-  pos: 'ÊÕÒøÖÕ¶Ë',
-  inventory: '¿â´æ¹ÜÀí',
-  returns: 'ÍË»õ¹ÜÀí',
-  categories: 'ÉÌÆ··ÖÀà',
-  stores: 'ÃÅµê¹ÜÀí',
-  history: 'ÏúÊÛÁ÷Ë®',
-  analytics: 'Éî¶È·ÖÎö',
+  dashboard: 'ç»è¥çœ‹æ¿',
+  pos: 'æ”¶é“¶ç»ˆç«¯',
+  inventory: 'åº“å­˜ç®¡ç†',
+  returns: 'é€€è´§ç®¡ç†',
+  categories: 'å•†å“åˆ†ç±»',
+  stores: 'é—¨åº—ç®¡ç†',
+  history: 'é”€å”®æµæ°´',
+  analytics: 'æ·±åº¦åˆ†æ',
 };
 
 function PageLoadingFallback() {
   return (
     <div className="ui-card p-10 flex flex-col items-center justify-center gap-3 text-slate-500 min-h-[240px]">
       <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
-      <p className="text-sm">Ò³Ãæ¼ÓÔØÖĞ...</p>
+      <p className="text-sm">é¡µé¢åŠ è½½ä¸­...</p>
     </div>
   );
 }
@@ -139,23 +139,23 @@ function App() {
             <button
               onClick={() => setMobileMenuOpen(true)}
               className="md:hidden ui-btn-muted !p-2 !rounded-lg"
-              aria-label="´ò¿ª²Ëµ¥"
+              aria-label="æ‰“å¼€èœå•"
             >
               <Menu className="w-4 h-4" />
             </button>
-            <span className="hidden md:inline text-sm font-medium text-slate-400">µ±Ç°Î»ÖÃ /</span>
+            <span className="hidden md:inline text-sm font-medium text-slate-400">å½“å‰ä½ç½® /</span>
             <span className="text-xs md:text-sm font-bold text-slate-600">{TAB_TITLES[activeTab]}</span>
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
             <div className="flex items-center gap-2">
-              <span className="hidden sm:inline text-xs text-slate-400">ÃÅµê</span>
+              <span className="hidden sm:inline text-xs text-slate-400">é—¨åº—</span>
               <select
                 value={storeId}
                 onChange={(e) => setStoreId(e.target.value)}
                 className="ui-select max-w-[140px] sm:max-w-none !py-1.5 !text-xs"
               >
-                {stores.length === 0 && <option value="" disabled>ÔİÎŞÃÅµê</option>}
+                {stores.length === 0 && <option value="" disabled>æš‚æ— é—¨åº—</option>}
                 {stores.map((storeItem) => (
                   <option key={storeItem.id} value={storeItem.id}>{storeItem.name}</option>
                 ))}
@@ -165,17 +165,17 @@ function App() {
             <div className="hidden md:block text-right">
               <p className="text-xs font-bold text-slate-900 flex items-center justify-end gap-1">
                 <UserRound className="w-3.5 h-3.5 text-slate-400" />
-                {user?.email || 'ÒÑµÇÂ¼ÓÃ»§'}
+                {user?.email || 'å·²ç™»å½•ç”¨æˆ·'}
               </p>
               <p className={`text-[10px] font-medium inline-flex items-center gap-1 ${canEdit ? 'text-emerald-600' : 'text-amber-600'}`}>
                 <Shield className="w-3 h-3" />
-                {role === 'admin' ? '¹ÜÀíÔ±È¨ÏŞ' : 'Ö»¶ÁÈ¨ÏŞ'}
+                {role === 'admin' ? 'ç®¡ç†å‘˜æƒé™' : 'åªè¯»æƒé™'}
               </p>
             </div>
 
             <button onClick={() => void signOut()} className="ui-btn-muted !px-3 !py-2 !rounded-xl text-xs">
               <LogOut className="w-4 h-4" />
-              ÍË³ö
+              é€€å‡º
             </button>
           </div>
         </header>
