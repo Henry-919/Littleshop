@@ -88,6 +88,17 @@ function App() {
     return unsubscribe;
   }, []);
 
+  const currentStore = useMemo(
+    () => stores.find((item) => item.id === storeId) || null,
+    [storeId, stores]
+  );
+
+  const sidebarStats = useMemo(() => ({
+    productCount: store.products.length,
+    salesCount: store.sales.length,
+    alertCount: store.products.filter((item) => (Number(item.stock) || 0) <= 0).length,
+  }), [store.products, store.sales]);
+
   const content = useMemo(() => {
     switch (activeTab) {
       case 'dashboard':
@@ -131,6 +142,8 @@ function App() {
         canEdit={canEdit}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
+        storeName={currentStore?.name}
+        storeStats={sidebarStats}
       />
 
       <main className="flex-1 h-full overflow-hidden flex flex-col">

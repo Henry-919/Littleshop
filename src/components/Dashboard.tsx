@@ -506,7 +506,7 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
 
   return (
     <div className="space-y-4 sm:space-y-6 pb-10">
-      {!canEdit && <ReadonlyNotice description="�������ݿ������鿴����ÿ���տ����ֻ�й���Ա����¼�롣" />}
+      {!canEdit && <ReadonlyNotice description="经营数据可以查看，但每日收款录入只对管理员开放。" />}
       {/* 欢迎头部 */}
       <div className="p-4 sm:p-6 bg-slate-900 rounded-2xl shadow-lg text-white relative overflow-hidden">
         <div className="relative z-10">
