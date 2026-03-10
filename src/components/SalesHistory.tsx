@@ -35,9 +35,31 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
-  const getProductName = (id: string) => {
-    return products.find(p => p.id === id)?.name || '未知商品';
-  };
+  const productNameMap = useMemo(() => {
+    return new Map(products.map((product) => [String(product.id), String(product.name || '')]));
+  }, [products]);
+
+  const historicalProductNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    sales.forEach((sale) => {
+      if (!sale.productId) return;
+      const saleName = String(sale.productName || '').trim();
+      if (saleName) {
+        map.set(String(sale.productId), saleName);
+      }
+    });
+    return map;
+  }, [sales]);
+
+  const getProductName = useCallback((id: string, fallbackName?: string) => {
+    const currentName = productNameMap.get(String(id));
+    if (currentName) return currentName;
+
+    const historicalName = String(fallbackName || historicalProductNameMap.get(String(id)) || '').trim();
+    if (historicalName) return historicalName;
+
+    return '未知商品';
+  }, [productNameMap, historicalProductNameMap]);
 
   const handleDelete = async (saleId: string) => {
     if (window.confirm('确定要撤销这条销售记录吗？\n撤销后该商品的库存将自动还原。')) {
@@ -263,7 +285,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
     return sortedSales.filter((sale) => {
-      const productName = getProductName(sale.productId);
+      const productName = getProductName(sale.productId, sale.productName);
       const dateValue = parseAppDate(sale.date)?.getTime() || 0;
       const salespersonName = String(sale.salesperson || '').trim();
 
@@ -375,7 +397,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
       return {
         Index: index + 1,
         Date: formatZhDateTime(sale.date),
-        Product: getProductName(sale.productId),
+        Product: getProductName(sale.productId, sale.productName),
         Quantity: quantity,
         UnitPrice: Number(unitPrice.toFixed(2)),
         Amount: Number(totalAmount.toFixed(2)),
@@ -540,7 +562,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
       <div key={sale.id} className={`rounded-xl p-3 flex items-center gap-3 transition-all ${isHighlighted ? 'bg-amber-50 border border-amber-300 ring-2 ring-amber-200' : 'bg-white border border-slate-100'}`}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            <span className="font-bold text-slate-800 text-sm truncate">{getProductName(sale.productId)}</span>
+            <span className="font-bold text-slate-800 text-sm truncate">{getProductName(sale.productId, sale.productName)}</span>
             <span className="shrink-0 px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-mono text-[11px]">×{sale.quantity}</span>
           </div>
           <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
@@ -699,7 +721,7 @@ export function SalesHistory({ store, storeId }: { store: ReturnType<typeof useS
         <td className="px-6 py-4">
           <div className="flex items-center gap-2">
             <ReceiptText className="w-4 h-4 text-slate-300" />
-            <span className="font-bold text-slate-800 text-sm">{getProductName(sale.productId)}</span>
+            <span className="font-bold text-slate-800 text-sm">{getProductName(sale.productId, sale.productName)}</span>
           </div>
         </td>
         <td className="px-6 py-4">

@@ -12,6 +12,7 @@ export interface Product {
 export interface Sale {
   id: string;
   productId: string;
+  productName?: string;
   quantity: number;
   totalAmount: number;
   salesperson: string;

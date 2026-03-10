@@ -17,6 +17,7 @@ export interface Product {
 export interface Sale {
   id: string;
   productId: string;
+  productName?: string;
   quantity: number;
   totalAmount: number;
   salesperson: string;
@@ -42,18 +43,23 @@ export function useStore(storeId?: string) {
     }
     setLoading(true);
     try {
-      const [catRes, prodRes, saleRes] = await Promise.all([
+      const [catRes, prodRes, productNameRes, saleRes] = await Promise.all([
         supabase.from('categories').select('*').eq('store_id', storeId).is('deleted_at', null),
         supabase.from('products').select('*').eq('store_id', storeId).is('deleted_at', null).order('name'),
+        supabase.from('products').select('id,name').eq('store_id', storeId),
         supabase.from('sales').select('*').eq('store_id', storeId).is('deleted_at', null).order('date', { ascending: false })
       ]);
 
       if (catRes.data) setCategories(catRes.data);
       if (prodRes.data) setProducts(prodRes.data);
       if (saleRes.data) {
+        const productNameMap = new Map<string, string>(
+          (productNameRes.data || []).map((product: any) => [String(product.id), String(product.name || '')])
+        );
         setSales(saleRes.data.map(s => ({
           id: s.id,
           productId: s.product_id,
+          productName: productNameMap.get(String(s.product_id)) || undefined,
           quantity: s.quantity,
           totalAmount: s.total_amount,
           salesperson: s.salesperson,
@@ -213,6 +219,7 @@ export function useStore(storeId?: string) {
       setSales(prev => [{
         id: saleData.id,
         productId: saleData.product_id,
+        productName: product.name,
         quantity: saleData.quantity,
         totalAmount: saleData.total_amount,
         salesperson: saleData.salesperson,
@@ -520,6 +527,7 @@ export function useStore(storeId?: string) {
     if (!oldSale) return false;
 
     const newProductId = updates.productId ?? oldSale.productId;
+    const newProductName = products.find(p => p.id === newProductId)?.name ?? oldSale.productName;
     const newQuantity = updates.quantity ?? oldSale.quantity;
     const newTotalAmount = updates.totalAmount ?? oldSale.totalAmount;
     const newSalesperson = updates.salesperson ?? oldSale.salesperson;
@@ -566,6 +574,7 @@ export function useStore(storeId?: string) {
     setSales(prev => prev.map(s => s.id === saleId ? {
       ...s,
       productId: newProductId,
+      productName: newProductName,
       quantity: newQuantity,
       totalAmount: newTotalAmount,
       salesperson: newSalesperson,
