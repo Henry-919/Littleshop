@@ -15,6 +15,7 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const AUTH_CACHE_KEY = 'littleshop_auth_cache_v1';
 
 const getAdminEmails = () =>
   String(import.meta.env.VITE_ADMIN_EMAILS || '')
@@ -35,6 +36,43 @@ const roleFromUserMetadata = (user: User | null): AppRole | null => {
   }
 
   return null;
+};
+
+const readCachedAuth = (): { session: Session | null; role: AppRole; loading: boolean } => {
+  if (typeof window === 'undefined') {
+    return { session: null, role: 'viewer', loading: true };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(AUTH_CACHE_KEY);
+    if (!raw) {
+      return { session: null, role: 'viewer', loading: true };
+    }
+
+    const parsed = JSON.parse(raw) as { session?: Session | null; role?: AppRole };
+    const session = parsed?.session ?? null;
+    const expiresAt = Number(session?.expires_at || 0);
+    if (!session?.user || (expiresAt > 0 && expiresAt * 1000 <= Date.now())) {
+      window.localStorage.removeItem(AUTH_CACHE_KEY);
+      return { session: null, role: 'viewer', loading: true };
+    }
+
+    const role = parsed?.role === 'admin' ? 'admin' : 'viewer';
+    return { session, role, loading: false };
+  } catch {
+    return { session: null, role: 'viewer', loading: true };
+  }
+};
+
+const writeCachedAuth = (session: Session | null, role: AppRole) => {
+  if (typeof window === 'undefined') return;
+
+  if (!session?.user) {
+    window.localStorage.removeItem(AUTH_CACHE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({ session, role }));
 };
 
 async function resolveRole(user: User | null): Promise<AppRole> {
@@ -75,38 +113,47 @@ async function resolveRole(user: User | null): Promise<AppRole> {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [loading, setLoading] = useState(true);
-  const [session, setSession] = useState<Session | null>(null);
-  const [role, setRole] = useState<AppRole>('viewer');
+  const initialAuth = readCachedAuth();
+  const [loading, setLoading] = useState(initialAuth.loading);
+  const [session, setSession] = useState<Session | null>(initialAuth.session);
+  const [role, setRole] = useState<AppRole>(initialAuth.role);
+
+  useEffect(() => {
+    setSupabaseWriteAccess(initialAuth.role === 'admin');
+  }, []);
 
   useEffect(() => {
     let alive = true;
 
-    const syncSession = async (nextSession: Session | null) => {
+    const syncSession = async (nextSession: Session | null, options?: { keepVisible?: boolean }) => {
       if (!alive) return;
       setSession(nextSession);
 
       if (!nextSession?.user) {
         setRole('viewer');
         setSupabaseWriteAccess(false);
+        writeCachedAuth(null, 'viewer');
         setLoading(false);
         return;
       }
 
-      setLoading(true);
+      if (!options?.keepVisible) {
+        setLoading(true);
+      }
       const nextRole = await resolveRole(nextSession.user);
       if (!alive) return;
       setRole(nextRole);
       setSupabaseWriteAccess(nextRole === 'admin');
+      writeCachedAuth(nextSession, nextRole);
       setLoading(false);
     };
 
     supabase.auth.getSession().then(({ data }) => {
-      void syncSession(data.session);
+      void syncSession(data.session, { keepVisible: true });
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      void syncSession(nextSession);
+      void syncSession(nextSession, { keepVisible: true });
     });
 
     return () => {
@@ -122,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    writeCachedAuth(null, 'viewer');
     await supabase.auth.signOut();
   };
 
