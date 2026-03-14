@@ -1,0 +1,110 @@
+import { supabase } from './supabase';
+
+export type StoreActivityType =
+  | 'pos_entry'
+  | 'receipt_recognition'
+  | 'stock_batch_history'
+  | 'inbound_log';
+
+type StoreActivityRow = {
+  id: string;
+  store_id: string;
+  record_type: StoreActivityType;
+  sort_time: string;
+  payload: unknown;
+  created_at: string;
+};
+
+type AppendStoreActivityInput<T> = {
+  id?: string;
+  sortTime?: string;
+  payload: T;
+};
+
+const STORE_ACTIVITY_TABLE = 'store_activity_records';
+
+const isMissingTableError = (error: unknown) => {
+  const code = String((error as { code?: string } | null)?.code || '').toUpperCase();
+  return code === '42P01' || code === 'PGRST205';
+};
+
+export async function listStoreActivity<T>(
+  storeId: string | undefined,
+  recordType: StoreActivityType,
+  limit: number,
+  normalize: (row: StoreActivityRow, index: number) => T | null
+): Promise<T[]> {
+  const currentStoreId = String(storeId || '').trim();
+  if (!currentStoreId) return [];
+
+  const { data, error } = await supabase
+    .from(STORE_ACTIVITY_TABLE)
+    .select('id, store_id, record_type, sort_time, payload, created_at')
+    .eq('store_id', currentStoreId)
+    .eq('record_type', recordType)
+    .is('deleted_at', null)
+    .order('sort_time', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    if (!isMissingTableError(error)) {
+      console.error(`Failed to load ${recordType} activity:`, error);
+    }
+    return [];
+  }
+
+  return (data || [])
+    .map((row, index) => normalize(row as StoreActivityRow, index))
+    .filter((item): item is T => !!item);
+}
+
+export async function appendStoreActivity<T>(
+  storeId: string | undefined,
+  recordType: StoreActivityType,
+  records: AppendStoreActivityInput<T>[]
+): Promise<boolean> {
+  const currentStoreId = String(storeId || '').trim();
+  if (!currentStoreId || !records.length) return true;
+
+  const rows = records.map((record) => ({
+    id: record.id,
+    store_id: currentStoreId,
+    record_type: recordType,
+    sort_time: record.sortTime || new Date().toISOString(),
+    payload: record.payload,
+  }));
+
+  const { error } = await supabase.from(STORE_ACTIVITY_TABLE).insert(rows);
+  if (error) {
+    if (!isMissingTableError(error)) {
+      console.error(`Failed to append ${recordType} activity:`, error);
+    }
+    return false;
+  }
+
+  return true;
+}
+
+export async function clearStoreActivity(
+  storeId: string | undefined,
+  recordType: StoreActivityType
+): Promise<boolean> {
+  const currentStoreId = String(storeId || '').trim();
+  if (!currentStoreId) return true;
+
+  const { error } = await supabase
+    .from(STORE_ACTIVITY_TABLE)
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('store_id', currentStoreId)
+    .eq('record_type', recordType)
+    .is('deleted_at', null);
+
+  if (error) {
+    if (!isMissingTableError(error)) {
+      console.error(`Failed to clear ${recordType} activity:`, error);
+    }
+    return false;
+  }
+
+  return true;
+}

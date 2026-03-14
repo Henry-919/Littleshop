@@ -12,61 +12,8 @@ import { ReadonlyNotice } from './ReadonlyNotice';
 export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnType<typeof useStore>; storeId?: string; canEdit?: boolean }) {
   const { sales, products, categories } = store;
   const [returnRecords, setReturnRecords] = useState<ReturnRecord[]>([]);
-  const DAILY_PAYMENTS_LOCAL_KEY = 'daily_payments_fallback_v1';
 
   type PaymentInput = { card: string; cash: string; transfer: string };
-
-  const readLocalPayments = (): Record<string, Record<string, PaymentInput>> => {
-    try {
-      const raw = localStorage.getItem(DAILY_PAYMENTS_LOCAL_KEY);
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object') return {};
-      return parsed;
-    } catch {
-      return {};
-    }
-  };
-
-  const writeLocalPayments = (next: Record<string, Record<string, PaymentInput>>) => {
-    try {
-      localStorage.setItem(DAILY_PAYMENTS_LOCAL_KEY, JSON.stringify(next));
-    } catch {
-      // ignore local storage write failure
-    }
-  };
-
-  const getLocalPaymentByStore = (targetStoreId?: string) => {
-    if (!targetStoreId) return {} as Record<string, PaymentInput>;
-    const all = readLocalPayments();
-    return all[targetStoreId] || {};
-  };
-
-  const saveLocalPayment = (targetStoreId: string, date: string, input: PaymentInput) => {
-    const all = readLocalPayments();
-    const storePayments = all[targetStoreId] || {};
-    storePayments[date] = {
-      card: String(input.card ?? ''),
-      cash: String(input.cash ?? ''),
-      transfer: String(input.transfer ?? '')
-    };
-    all[targetStoreId] = storePayments;
-    writeLocalPayments(all);
-  };
-
-  const removeLocalPayment = (targetStoreId: string, date: string) => {
-    const all = readLocalPayments();
-    const storePayments = all[targetStoreId];
-    if (!storePayments) return;
-    if (!Object.prototype.hasOwnProperty.call(storePayments, date)) return;
-    delete storePayments[date];
-    if (Object.keys(storePayments).length === 0) {
-      delete all[targetStoreId];
-    } else {
-      all[targetStoreId] = storePayments;
-    }
-    writeLocalPayments(all);
-  };
 
   const stats = useMemo(() => {
     const totalSalesRevenue = sales.reduce((sum, sale) => sum + sale.totalAmount, 0);
@@ -252,8 +199,10 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
   }, [sales, returnRecords]);
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [dailySalesPage, setDailySalesPage] = useState(1);
   const [paymentInputs, setPaymentInputs] = useState<Record<string, PaymentInput>>({});
   const saveTimers = useRef<Record<string, number>>({});
+  const DAILY_SALES_PAGE_SIZE = 5;
 
   useEffect(() => {
     setSelectedMonth(null);
@@ -274,6 +223,10 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
       setSelectedMonth(monthlySales[0].monthKey);
     }
   }, [monthlySales, selectedMonth]);
+
+  useEffect(() => {
+    setDailySalesPage(1);
+  }, [selectedMonth, storeId]);
 
   useEffect(() => {
     const loadPayments = async () => {
@@ -325,31 +278,8 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
             }
           });
         }
-
-        const localPayments = getLocalPaymentByStore(storeId);
-        Object.keys(nextInputs).forEach((dateKey) => {
-          const local = localPayments[dateKey];
-          if (!local) return;
-          nextInputs[dateKey] = {
-            card: String(local.card ?? nextInputs[dateKey].card ?? ''),
-            cash: String(local.cash ?? nextInputs[dateKey].cash ?? ''),
-            transfer: String(local.transfer ?? nextInputs[dateKey].transfer ?? '')
-          };
-        });
       } catch (err) {
         console.error('Failed to load daily payments:', err);
-        if (storeId) {
-          const localPayments = getLocalPaymentByStore(storeId);
-          Object.keys(nextInputs).forEach((dateKey) => {
-            const local = localPayments[dateKey];
-            if (!local) return;
-            nextInputs[dateKey] = {
-              card: String(local.card ?? nextInputs[dateKey].card ?? ''),
-              cash: String(local.cash ?? nextInputs[dateKey].cash ?? ''),
-              transfer: String(local.transfer ?? nextInputs[dateKey].transfer ?? '')
-            };
-          });
-        }
       }
 
       setPaymentInputs(nextInputs);
@@ -382,7 +312,6 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
         const fallbackErrorCodes = new Set(['42P10', 'PGRST204', 'PGRST205']);
         if (!fallbackErrorCodes.has(String((error as any)?.code || '').toUpperCase())) {
           console.error('Failed to save daily payment:', error);
-          saveLocalPayment(currentStoreId, date, input);
           return;
         }
 
@@ -395,7 +324,6 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
 
         if (queryError) {
           console.error('Failed to query daily payment before fallback save:', queryError);
-          saveLocalPayment(currentStoreId, date, input);
           return;
         }
 
@@ -412,10 +340,8 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
 
           if (updateError) {
             console.error('Failed to update daily payment in fallback save:', updateError);
-            saveLocalPayment(currentStoreId, date, input);
             return;
           }
-          removeLocalPayment(currentStoreId, date);
           return;
         }
 
@@ -425,18 +351,19 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
 
         if (insertError) {
           console.error('Failed to insert daily payment in fallback save:', insertError);
-          saveLocalPayment(currentStoreId, date, input);
           return;
         }
-        removeLocalPayment(currentStoreId, date);
         return;
       }
-
-      removeLocalPayment(currentStoreId, date);
     }, 500);
   };
 
   const selectedMonthData = monthlySales.find(m => m.monthKey === selectedMonth) || null;
+  const totalDailySalesPages = Math.max(1, Math.ceil((selectedMonthData?.daily.length || 0) / DAILY_SALES_PAGE_SIZE));
+  const safeDailySalesPage = Math.min(dailySalesPage, totalDailySalesPages);
+  const pagedDailySales = selectedMonthData
+    ? selectedMonthData.daily.slice((safeDailySalesPage - 1) * DAILY_SALES_PAGE_SIZE, safeDailySalesPage * DAILY_SALES_PAGE_SIZE)
+    : [];
   const formatMonthLabel = (monthKey: string) => {
     const [year, month] = monthKey.split('-');
     return `${year}年${month}月`;
@@ -628,7 +555,10 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
                 {monthlySales.map((month) => (
                   <button
                     key={month.monthKey}
-                    onClick={() => setSelectedMonth(month.monthKey)}
+                    onClick={() => {
+                      setSelectedMonth(month.monthKey);
+                      setDailySalesPage(1);
+                    }}
                     className={`text-left p-3 sm:p-4 rounded-xl sm:rounded-2xl border transition-all shadow-sm hover:shadow-md
                       ${selectedMonth === month.monthKey
                         ? 'border-emerald-500 bg-emerald-50'
@@ -649,14 +579,19 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
                     <div className="font-bold text-slate-900 text-sm sm:text-base">
                       {formatMonthLabel(selectedMonthData.monthKey)}每日营业额（已扣退货）
                     </div>
-                    <div className="text-xs sm:text-sm text-slate-500">
-                      合计：￥{selectedMonthData.total.toLocaleString()}
+                    <div className="text-right">
+                      <div className="text-xs sm:text-sm text-slate-500">
+                        合计：￥{selectedMonthData.total.toLocaleString()}
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        第 {safeDailySalesPage}/{totalDailySalesPages} 页 · 每页 5 天
+                      </div>
                     </div>
                   </div>
 
                   {/* Mobile: Card view for daily sales */}
                   <div className="sm:hidden divide-y divide-slate-100">
-                    {selectedMonthData.daily.map((day) => {
+                    {pagedDailySales.map((day) => {
                       const inputs = paymentInputs[day.date] || { card: '', cash: '', transfer: '' };
                       const card = Number(inputs.card) || 0;
                       const cash = Number(inputs.cash) || 0;
@@ -737,7 +672,7 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {selectedMonthData.daily.map((day) => {
+                        {pagedDailySales.map((day) => {
                           const inputs = paymentInputs[day.date] || { card: '', cash: '', transfer: '' };
                           const card = Number(inputs.card) || 0;
                           const cash = Number(inputs.cash) || 0;
@@ -798,6 +733,33 @@ export function Dashboard({ store, storeId, canEdit = false }: { store: ReturnTy
                       </tbody>
                     </table>
                   </div>
+
+                  {selectedMonthData.daily.length > DAILY_SALES_PAGE_SIZE && (
+                    <div className="border-t border-slate-100 px-4 py-3 sm:px-6 sm:py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="text-xs text-slate-500">
+                        当前显示 {pagedDailySales.length} 天，按 5 天分页查看
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setDailySalesPage((prev) => Math.max(1, prev - 1))}
+                          disabled={safeDailySalesPage <= 1}
+                          className="px-3 py-2 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 disabled:text-slate-300 disabled:bg-slate-50"
+                        >
+                          上一页
+                        </button>
+                        <span className="min-w-[72px] text-center text-xs font-semibold text-slate-500">
+                          {safeDailySalesPage} / {totalDailySalesPages}
+                        </span>
+                        <button
+                          onClick={() => setDailySalesPage((prev) => Math.min(totalDailySalesPages, prev + 1))}
+                          disabled={safeDailySalesPage >= totalDailySalesPages}
+                          className="px-3 py-2 rounded-lg text-xs font-bold bg-white border border-slate-200 text-slate-600 disabled:text-slate-300 disabled:bg-slate-50"
+                        >
+                          下一页
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

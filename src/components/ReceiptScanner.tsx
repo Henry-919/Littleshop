@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, Upload, CheckCircle, AlertCircle, Loader2, Save, X, Plus } from 'lucide-react';
 import heic2any from 'heic2any';
 import { formatZhDateTime } from '../lib/date';
+import { appendStoreActivity, clearStoreActivity, listStoreActivity } from '../lib/storeActivity';
 
 type MatchCandidate = {
   productId: string;
@@ -55,8 +56,43 @@ type RecognitionHistoryEntry = {
   items: Array<{ productName: string; quantity: number; unitPrice: number; totalAmount: number; status: 'auto' | 'review' }>;
 };
 
-const RECOGNITION_HISTORY_KEY = 'receipt_recognition_history_v1';
 const RECOGNITION_HISTORY_LIMIT = 30;
+
+const normalizeRecognitionHistoryEntry = (
+  payload: any,
+  fallback: { id: string; createdAt: string }
+): RecognitionHistoryEntry | null => {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const totalItems = Number(payload.totalItems || 0);
+  const autoMatchedItems = Number(payload.autoMatchedItems || 0);
+  const reviewItems = Number(payload.reviewItems || 0);
+  const items = Array.isArray(payload.items)
+    ? payload.items
+        .map((item) => {
+          const status = item?.status === 'auto' ? 'auto' : item?.status === 'review' ? 'review' : null;
+          const productName = String(item?.productName || '').trim();
+          const quantity = Number(item?.quantity || 0);
+          const unitPrice = Number(item?.unitPrice || 0);
+          const totalAmount = Number(item?.totalAmount || 0);
+          if (!status || !productName || !Number.isFinite(quantity) || quantity <= 0) return null;
+          return { productName, quantity, unitPrice, totalAmount, status };
+        })
+        .filter((item): item is RecognitionHistoryEntry['items'][number] => !!item)
+    : [];
+
+  if (!Number.isFinite(totalItems) || totalItems <= 0) return null;
+
+  return {
+    id: String(payload.id || fallback.id),
+    createdAt: String(payload.createdAt || fallback.createdAt || '').trim() || new Date().toISOString(),
+    saleDate: payload.saleDate ? String(payload.saleDate) : undefined,
+    totalItems,
+    autoMatchedItems: Number.isFinite(autoMatchedItems) ? autoMatchedItems : 0,
+    reviewItems: Number.isFinite(reviewItems) ? reviewItems : 0,
+    items,
+  };
+};
 
 const AUTO_MATCH_SCORE = 0.88;
 const AMBIGUOUS_GAP = 0.08;
@@ -192,7 +228,7 @@ const toJpegDataUrlIfNeeded = async (file: File) => {
   }
 };
 
-export function ReceiptScanner({ store }: { store: any }) {
+export function ReceiptScanner({ store, storeId }: { store: any; storeId?: string }) {
   const { products, addSale, addProduct } = store;
   const [images, setImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -214,25 +250,48 @@ export function ReceiptScanner({ store }: { store: any }) {
   const [manualAddForm, setManualAddForm] = useState({ productName: '', unitPrice: '', quantity: '', totalAmount: '' });
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(RECOGNITION_HISTORY_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setRecognitionHistory(parsed.slice(0, RECOGNITION_HISTORY_LIMIT));
-      }
-    } catch {
-      setRecognitionHistory([]);
-    }
-  }, []);
+    let active = true;
 
-  const persistRecognitionHistory = (next: RecognitionHistoryEntry[]) => {
+    const loadRecognitionHistory = async () => {
+      if (!storeId) {
+        if (active) setRecognitionHistory([]);
+        return;
+      }
+
+      const rows = await listStoreActivity<RecognitionHistoryEntry>(
+        storeId,
+        'receipt_recognition',
+        RECOGNITION_HISTORY_LIMIT,
+        (row) =>
+          normalizeRecognitionHistoryEntry(row.payload, {
+            id: row.id,
+            createdAt: row.sort_time || row.created_at || new Date().toISOString(),
+          })
+      );
+
+      if (active) setRecognitionHistory(rows);
+    };
+
+    void loadRecognitionHistory();
+
+    return () => {
+      active = false;
+    };
+  }, [storeId]);
+
+  const persistRecognitionHistory = async (next: RecognitionHistoryEntry[]) => {
     setRecognitionHistory(next);
-    try {
-      localStorage.setItem(RECOGNITION_HISTORY_KEY, JSON.stringify(next));
-    } catch {
-      // ignore storage write failures
-    }
+    if (!storeId) return;
+    await clearStoreActivity(storeId, 'receipt_recognition');
+    await appendStoreActivity(
+      storeId,
+      'receipt_recognition',
+      next.map((entry) => ({
+        id: entry.id,
+        sortTime: entry.createdAt,
+        payload: entry,
+      }))
+    );
   };
 
   const productIndex = useMemo(() => {
@@ -542,7 +601,7 @@ export function ReceiptScanner({ store }: { store: any }) {
       };
 
       const nextHistory = [historyEntry, ...recognitionHistory].slice(0, RECOGNITION_HISTORY_LIMIT);
-      persistRecognitionHistory(nextHistory);
+      await persistRecognitionHistory(nextHistory);
     } catch (err: any) {
       console.error(err);
       const rawMessage = String(err?.message || err || '识别失败');

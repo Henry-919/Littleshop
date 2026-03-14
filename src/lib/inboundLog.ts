@@ -1,3 +1,5 @@
+import { appendStoreActivity, listStoreActivity, type StoreActivityType } from './storeActivity';
+
 export type InboundLogSource = 'manual_add' | 'excel_import' | 'batch_restock' | 'return';
 
 export type InboundLogRecord = {
@@ -19,63 +21,35 @@ type AppendInboundLogInput = {
   time?: string;
 };
 
-const INBOUND_LOG_KEY = 'littleshop_inbound_log_v1';
 const MAX_LOG_COUNT = 2000;
+const RECORD_TYPE: StoreActivityType = 'inbound_log';
 
-const toArray = (value: unknown): any[] => {
-  if (!Array.isArray(value)) return [];
-  return value;
-};
+const normalizeRecord = (payload: any, fallback: { id: string; sortTime: string; storeId: string }): InboundLogRecord | null => {
+  if (!payload || typeof payload !== 'object') return null;
 
-const normalizeRecord = (item: any): InboundLogRecord | null => {
-  if (!item || typeof item !== 'object') return null;
-
-  const source = String(item.source || '') as InboundLogSource;
+  const source = String(payload.source || '') as InboundLogSource;
   if (!['manual_add', 'excel_import', 'batch_restock', 'return'].includes(source)) return null;
 
-  const productName = String(item.productName || '').trim();
-  const qty = Number(item.qty || 0);
-  const storeId = String(item.storeId || '').trim();
-  const time = String(item.time || '').trim();
+  const productName = String(payload.productName || '').trim();
+  const qty = Number(payload.qty || 0);
+  const storeId = String(payload.storeId || fallback.storeId || '').trim();
+  const time = String(payload.time || fallback.sortTime || '').trim();
 
   if (!productName || !storeId || !Number.isFinite(qty) || qty <= 0 || !time) return null;
 
   return {
-    id: String(item.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    id: String(payload.id || fallback.id),
     time,
     storeId,
     source,
     productName,
     qty,
-    note: item.note ? String(item.note) : undefined
+    note: payload.note ? String(payload.note) : undefined,
   };
 };
 
-const readAllRecords = (): InboundLogRecord[] => {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(INBOUND_LOG_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return toArray(parsed)
-      .map(normalizeRecord)
-      .filter((item): item is InboundLogRecord => !!item)
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-      .slice(0, MAX_LOG_COUNT);
-  } catch {
-    return [];
-  }
-};
-
-const saveAllRecords = (records: InboundLogRecord[]) => {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(INBOUND_LOG_KEY, JSON.stringify(records.slice(0, MAX_LOG_COUNT)));
-  } catch {}
-};
-
-export const appendInboundLogs = (entries: AppendInboundLogInput[]) => {
-  if (!entries?.length) return;
+export const appendInboundLogs = async (entries: AppendInboundLogInput[]) => {
+  if (!entries?.length) return true;
 
   const normalizedEntries = entries
     .map((entry) => {
@@ -84,30 +58,54 @@ export const appendInboundLogs = (entries: AppendInboundLogInput[]) => {
       const qty = Number(entry.qty || 0);
       if (!storeId || !productName || !Number.isFinite(qty) || qty <= 0) return null;
 
-      return normalizeRecord({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        time: entry.time || new Date().toISOString(),
-        storeId,
-        source: entry.source,
-        productName,
-        qty,
-        note: entry.note
-      });
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const time = entry.time || new Date().toISOString();
+      const payload = normalizeRecord(
+        {
+          id,
+          time,
+          storeId,
+          source: entry.source,
+          productName,
+          qty,
+          note: entry.note,
+        },
+        { id, sortTime: time, storeId }
+      );
+
+      if (!payload) return null;
+
+      return {
+        id: payload.id,
+        sortTime: payload.time,
+        payload,
+        storeId: payload.storeId,
+      };
     })
-    .filter((item): item is InboundLogRecord => !!item);
+    .filter((item): item is { id: string; sortTime: string; payload: InboundLogRecord; storeId: string } => !!item);
 
-  if (!normalizedEntries.length) return;
+  if (!normalizedEntries.length) return true;
 
-  const existing = readAllRecords();
-  const merged = [...normalizedEntries, ...existing]
-    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-    .slice(0, MAX_LOG_COUNT);
+  const grouped = normalizedEntries.reduce((acc, item) => {
+    const list = acc.get(item.storeId) || [];
+    list.push({ id: item.id, sortTime: item.sortTime, payload: item.payload });
+    acc.set(item.storeId, list);
+    return acc;
+  }, new Map<string, Array<{ id: string; sortTime: string; payload: InboundLogRecord }>>());
 
-  saveAllRecords(merged);
+  const results = await Promise.all(
+    Array.from(grouped.entries()).map(([storeId, records]) => appendStoreActivity(storeId, RECORD_TYPE, records))
+  );
+
+  return results.every(Boolean);
 };
 
-export const getInboundLogsByStore = (storeId?: string) => {
-  const currentStoreId = String(storeId || '').trim();
-  if (!currentStoreId) return [] as InboundLogRecord[];
-  return readAllRecords().filter((item) => item.storeId === currentStoreId);
+export const getInboundLogsByStore = async (storeId?: string) => {
+  return listStoreActivity<InboundLogRecord>(storeId, RECORD_TYPE, MAX_LOG_COUNT, (row) =>
+    normalizeRecord(row.payload, {
+      id: row.id,
+      sortTime: row.sort_time || row.created_at || new Date().toISOString(),
+      storeId: row.store_id,
+    })
+  );
 };

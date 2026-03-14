@@ -15,6 +15,7 @@ import {
 import { useStore } from '../hooks/useStore';
 import { formatZhDateTime } from '../lib/date';
 import { buildHistoricalPriceMap, getReferencePrice } from '../lib/pricing';
+import { appendStoreActivity, clearStoreActivity, listStoreActivity } from '../lib/storeActivity';
 import { FeedbackToast, type FeedbackMessage } from './common/FeedbackToast';
 import { ReadonlyNotice } from './ReadonlyNotice';
 
@@ -44,7 +45,23 @@ type MatchSuggestion = {
   categoryId?: string;
 };
 
-const POS_ENTRY_RECORDS_KEY = 'pos_entry_records_v1';
+type BatchDraft = {
+  id: string;
+  lineIndex: number;
+  rawLine: string;
+  keyword: string;
+  quantity: number;
+  unitPriceText: string;
+  matchedProduct: MatchSuggestion | null;
+  suggestions: MatchSuggestion[];
+  score: number;
+  referencePrice: number;
+  totalAmount: number;
+  isNewProduct: boolean;
+  needsAbnormalNote: boolean;
+  error?: string;
+};
+
 const POS_ENTRY_RECORDS_LIMIT = 120;
 const AUTO_MATCH_THRESHOLD = 0.7;
 const SUGGESTION_THRESHOLD = 0.45;
@@ -102,9 +119,104 @@ const formatMoneyInput = (value?: string | number | null) => {
   return amount.toFixed(2);
 };
 
-export function POS({ store, canEdit = false }: { store: ReturnType<typeof useStore>; canEdit?: boolean }) {
+const isNumeric = (value: string) => /^-?\d+(?:\.\d+)?$/.test(value);
+const isIntegerText = (value: string) => /^\d+$/.test(value);
+
+const parseBatchLine = (line: string) => {
+  const text = String(line || '').trim();
+  if (!text) return null;
+
+  const commaParts = text.split(/[，,]/).map((part) => part.trim()).filter(Boolean);
+  if (commaParts.length >= 2) {
+    return {
+      keyword: commaParts[0],
+      quantityText: commaParts[1],
+      unitPriceText: commaParts[2] || '',
+    };
+  }
+
+  const timesPattern = text.match(/^(.*?)[xX＊*]\s*(\d+)(?:\s+(-?\d+(?:\.\d+)?))?$/);
+  if (timesPattern) {
+    return {
+      keyword: timesPattern[1].trim(),
+      quantityText: timesPattern[2],
+      unitPriceText: timesPattern[3] || '',
+    };
+  }
+
+  const parts = text.split(/\s+/).filter(Boolean);
+  if (parts.length >= 3 && isIntegerText(parts[parts.length - 2]) && isNumeric(parts[parts.length - 1])) {
+    return {
+      keyword: parts.slice(0, -2).join(' '),
+      quantityText: parts[parts.length - 2],
+      unitPriceText: parts[parts.length - 1],
+    };
+  }
+
+  if (parts.length >= 2 && isIntegerText(parts[parts.length - 1])) {
+    return {
+      keyword: parts.slice(0, -1).join(' '),
+      quantityText: parts[parts.length - 1],
+      unitPriceText: '',
+    };
+  }
+
+  return {
+    keyword: text,
+    quantityText: '1',
+    unitPriceText: '',
+  };
+};
+
+const composeBatchLine = (keyword: string, quantity: number, unitPriceText?: string) => {
+  const normalizedKeyword = String(keyword || '').trim();
+  const normalizedPrice = String(unitPriceText || '').trim();
+  if (!normalizedKeyword) return '';
+  return normalizedPrice
+    ? `${normalizedKeyword}, ${quantity}, ${normalizedPrice}`
+    : `${normalizedKeyword}, ${quantity}`;
+};
+
+const normalizePosEntryRecord = (
+  payload: any,
+  fallback: { id: string; createdAt: string }
+): PosEntryRecord | null => {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const productName = String(payload.productName || '').trim();
+  const salesperson = String(payload.salesperson || '').trim();
+  const quantity = Number(payload.quantity || 0);
+  const saleUnitPrice = Number(payload.saleUnitPrice || 0);
+  const totalAmount = Number(payload.totalAmount || 0);
+  const inputOrder = Number(payload.inputOrder || 0);
+  const createdAt = String(payload.createdAt || fallback.createdAt || '').trim() || new Date().toISOString();
+
+  if (!productName || !salesperson || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(inputOrder) || inputOrder <= 0) {
+    return null;
+  }
+
+  return {
+    id: String(payload.id || fallback.id),
+    inputOrder,
+    createdAt,
+    productName,
+    quantity,
+    saleUnitPrice: Number.isFinite(saleUnitPrice) ? saleUnitPrice : 0,
+    totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0,
+    salesperson,
+    saleDate: payload.saleDate ? String(payload.saleDate) : undefined,
+    isNewProduct: !!payload.isNewProduct,
+    costPrice: Number.isFinite(Number(payload.costPrice)) ? Number(payload.costPrice) : undefined,
+    inventoryInput: Number.isFinite(Number(payload.inventoryInput)) ? Number(payload.inventoryInput) : undefined,
+    abnormalPriceNote: payload.abnormalPriceNote ? String(payload.abnormalPriceNote) : undefined,
+  };
+};
+
+export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typeof useStore>; storeId?: string; canEdit?: boolean }) {
   const { products, categories, sales, addSale, addProduct } = store;
+  const [entryMode, setEntryMode] = useState<'single' | 'batch'>('batch');
   const [searchTerm, setSearchTerm] = useState('');
+  const [batchInput, setBatchInput] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [salesperson, setSalesperson] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -117,32 +229,59 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
   const [entryRecords, setEntryRecords] = useState<PosEntryRecord[]>([]);
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
   const [resolvedProductId, setResolvedProductId] = useState<string | null>(null);
+  const [batchAbnormalPriceNote, setBatchAbnormalPriceNote] = useState('');
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(POS_ENTRY_RECORDS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setEntryRecords(parsed.slice(-POS_ENTRY_RECORDS_LIMIT));
-      }
-    } catch {
-      setEntryRecords([]);
-    }
-  }, []);
+    let active = true;
 
-  const persistEntryRecords = (next: PosEntryRecord[]) => {
-    setEntryRecords(next);
-    try {
-      localStorage.setItem(POS_ENTRY_RECORDS_KEY, JSON.stringify(next));
-    } catch {
-      // ignore write failure
-    }
+    const loadEntryRecords = async () => {
+      if (!storeId) {
+        if (active) setEntryRecords([]);
+        return;
+      }
+
+      const rows = await listStoreActivity<PosEntryRecord>(storeId, 'pos_entry', POS_ENTRY_RECORDS_LIMIT, (row) =>
+        normalizePosEntryRecord(row.payload, {
+          id: row.id,
+          createdAt: row.sort_time || row.created_at || new Date().toISOString(),
+        })
+      );
+
+      if (active) {
+        setEntryRecords(rows.reverse());
+      }
+    };
+
+    void loadEntryRecords();
+
+    return () => {
+      active = false;
+    };
+  }, [storeId]);
+
+  const appendEntryRecords = async (nextRecords: PosEntryRecord[]) => {
+    if (!nextRecords.length) return;
+    setEntryRecords((prev) => [...prev, ...nextRecords].slice(-POS_ENTRY_RECORDS_LIMIT));
+    if (!storeId) return;
+    await appendStoreActivity(
+      storeId,
+      'pos_entry',
+      nextRecords.map((record) => ({
+        id: record.id,
+        sortTime: record.createdAt,
+        payload: record,
+      }))
+    );
   };
 
-  const autoMatch = useMemo(() => {
-    const text = String(searchTerm || '').trim();
-    if (!text) {
+  const clearEntryRecords = async () => {
+    setEntryRecords([]);
+    await clearStoreActivity(storeId, 'pos_entry');
+  };
+
+  const buildMatchResult = (text: string) => {
+    const keyword = String(text || '').trim();
+    if (!keyword) {
       return { matchedProduct: null as MatchSuggestion | null, score: 0, suggestions: [] as MatchSuggestion[] };
     }
 
@@ -150,7 +289,7 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
       .map((product) => ({
         id: product.id,
         name: String(product.name || ''),
-        score: scoreModelSimilarity(text, String(product.name || '')),
+        score: scoreModelSimilarity(keyword, String(product.name || '')),
         costPrice: product.cost_price,
         stock: Number(product.stock) || 0,
         price: Number(product.price) || 0,
@@ -166,11 +305,31 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
       score: best?.score || 0,
       suggestions,
     };
+  };
+
+  const autoMatch = useMemo(() => {
+    return buildMatchResult(searchTerm);
   }, [products, searchTerm]);
 
   const matchedProduct = autoMatch.matchedProduct;
   const isNewProduct = searchTerm.trim().length > 0 && !matchedProduct;
   const historicalPriceMap = useMemo(() => buildHistoricalPriceMap(sales), [sales]);
+
+  const getSuggestedPrice = (product: MatchSuggestion | null) => {
+    if (!product) return 0;
+    const historicalPrice = historicalPriceMap.get(product.id);
+    const reference = getReferencePrice({
+      product: {
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        stock: product.stock,
+        cost_price: product.costPrice,
+      },
+      historicalPrice,
+    });
+    return reference > 0 ? reference : product.price;
+  };
 
   const hasHistoricalReference = useMemo(() => {
     if (!matchedProduct || isNewProduct) return false;
@@ -179,16 +338,7 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
 
   const referencePrice = useMemo(() => {
     if (!matchedProduct || isNewProduct) return 0;
-    return getReferencePrice({
-      product: {
-        id: matchedProduct.id,
-        name: matchedProduct.name,
-        price: matchedProduct.price,
-        stock: matchedProduct.stock,
-        cost_price: matchedProduct.costPrice,
-      },
-      historicalPrice: historicalPriceMap.get(matchedProduct.id),
-    });
+    return getSuggestedPrice(matchedProduct);
   }, [historicalPriceMap, isNewProduct, matchedProduct]);
 
   const priceDeviation = useMemo(() => {
@@ -228,8 +378,98 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
     return Number((price * quantity).toFixed(2));
   }, [manualPrice, quantity]);
 
+  const batchDrafts = useMemo(() => {
+    return batchInput
+      .split(/\r?\n/)
+      .map((rawLine, index) => ({ rawLine, index }))
+      .filter(({ rawLine }) => rawLine.trim().length > 0)
+      .map(({ rawLine, index }) => {
+        const parsed = parseBatchLine(rawLine);
+        if (!parsed || !parsed.keyword.trim()) {
+          return {
+            id: `batch-${index}`,
+            lineIndex: index,
+            rawLine,
+            keyword: '',
+            quantity: 0,
+            unitPriceText: '',
+            matchedProduct: null,
+            suggestions: [],
+            score: 0,
+            referencePrice: 0,
+            totalAmount: 0,
+            isNewProduct: false,
+            needsAbnormalNote: false,
+            error: '这一行没有识别到商品名。',
+          } satisfies BatchDraft;
+        }
+
+        const parsedQuantity = Number.parseInt(parsed.quantityText, 10);
+        const quantityValue = Number.isInteger(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : 0;
+        const unitPriceText = formatMoneyInput(parsed.unitPriceText);
+        const match = buildMatchResult(parsed.keyword);
+        const matched = match.matchedProduct;
+        const suggestedPrice = matched ? getSuggestedPrice(matched) : 0;
+        const finalUnitPriceText = unitPriceText || (suggestedPrice > 0 ? formatMoneyInput(suggestedPrice) : '');
+        const unitPrice = Number(finalUnitPriceText);
+        const deviation = matched && suggestedPrice > 0 && Number.isFinite(unitPrice) && unitPrice > 0
+          ? Math.abs(unitPrice - suggestedPrice) / suggestedPrice
+          : 0;
+
+        let error = '';
+        if (!quantityValue) error = '数量必须是大于 0 的整数。';
+        if (!matched) error = error || '还没有匹配到商品，请点候选或调整名称。';
+        if (finalUnitPriceText && (!Number.isFinite(unitPrice) || unitPrice <= 0)) error = error || '单价格式不正确。';
+
+        return {
+          id: `batch-${index}`,
+          lineIndex: index,
+          rawLine,
+          keyword: parsed.keyword.trim(),
+          quantity: quantityValue || 1,
+          unitPriceText: finalUnitPriceText,
+          matchedProduct: matched,
+          suggestions: match.suggestions,
+          score: match.score,
+          referencePrice: suggestedPrice,
+          totalAmount: Number.isFinite(unitPrice) && unitPrice > 0 ? Number((unitPrice * (quantityValue || 1)).toFixed(2)) : 0,
+          isNewProduct: parsed.keyword.trim().length > 0 && !matched,
+          needsAbnormalNote: !!matched && suggestedPrice > 0 && deviation >= 0.3,
+          error: error || undefined,
+        } satisfies BatchDraft;
+      });
+  }, [batchInput, buildMatchResult, getSuggestedPrice]);
+
+  const batchSummary = useMemo(() => {
+    const totalLines = batchDrafts.length;
+    const matchedCount = batchDrafts.filter((item) => item.matchedProduct).length;
+    const unmatchedCount = batchDrafts.filter((item) => !item.matchedProduct).length;
+    const invalidCount = batchDrafts.filter((item) => !!item.error).length;
+    const totalAmount = batchDrafts.reduce((sum, item) => sum + item.totalAmount, 0);
+    const hasAbnormalPrice = batchDrafts.some((item) => item.needsAbnormalNote);
+    return { totalLines, matchedCount, unmatchedCount, invalidCount, totalAmount, hasAbnormalPrice };
+  }, [batchDrafts]);
+
   const handleApplySuggestion = (suggestion: MatchSuggestion) => {
     setSearchTerm(suggestion.name);
+  };
+
+  const updateBatchLine = (lineIndex: number, nextKeyword: string, nextQuantity: number, nextUnitPriceText: string) => {
+    const nextLines = batchInput.split(/\r?\n/);
+    nextLines[lineIndex] = composeBatchLine(nextKeyword, Math.max(1, nextQuantity), nextUnitPriceText);
+    setBatchInput(nextLines.join('\n'));
+  };
+
+  const handleApplyBatchSuggestion = (draft: BatchDraft, suggestion: MatchSuggestion) => {
+    updateBatchLine(draft.lineIndex, suggestion.name, draft.quantity, draft.unitPriceText);
+  };
+
+  const handleAdjustBatchQuantity = (draft: BatchDraft, delta: number) => {
+    updateBatchLine(draft.lineIndex, draft.keyword, Math.max(1, draft.quantity + delta), draft.unitPriceText);
+  };
+
+  const handleBatchPriceChange = (draft: BatchDraft, nextValue: string) => {
+    updateBatchLine(draft.lineIndex, draft.keyword, draft.quantity, nextValue);
   };
 
   const handleAdjustQuantity = (delta: number) => {
@@ -245,6 +485,11 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
     setInitStock('');
     setSelectedCategoryId('');
     setResolvedProductId(null);
+  };
+
+  const resetBatchForm = () => {
+    setBatchInput('');
+    setBatchAbnormalPriceNote('');
   };
 
   const handleCheckout = async (e: React.FormEvent) => {
@@ -352,7 +597,7 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
         abnormalPriceNote: needsAbnormalNote ? abnormalPriceNote.trim() : undefined,
       };
 
-      persistEntryRecords([...entryRecords, record].slice(-POS_ENTRY_RECORDS_LIMIT));
+      await appendEntryRecords([record]);
       setFeedback({
         type: 'success',
         text: isNewProduct
@@ -366,6 +611,114 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleBatchCheckout = async () => {
+    const salespersonName = salesperson.trim();
+
+    if (!salespersonName) {
+      setFeedback({ type: 'error', text: '请先填写销售人员姓名。' });
+      return;
+    }
+
+    if (batchDrafts.length === 0) {
+      setFeedback({ type: 'error', text: '请先粘贴批量商品清单。' });
+      return;
+    }
+
+    const invalidDraft = batchDrafts.find((item) => item.error);
+    if (invalidDraft) {
+      setFeedback({ type: 'error', text: `第 ${invalidDraft.lineIndex + 1} 行还没准备好：${invalidDraft.error}` });
+      return;
+    }
+
+    if (batchSummary.hasAbnormalPrice && !batchAbnormalPriceNote.trim()) {
+      setFeedback({ type: 'error', text: '批量清单里存在偏差较大的售价，请先填写异常备注。' });
+      return;
+    }
+
+    const requiredByProduct = new Map<string, { name: string; stock: number; required: number }>();
+    batchDrafts.forEach((item) => {
+      if (!item.matchedProduct) return;
+      const current = requiredByProduct.get(item.matchedProduct.id);
+      if (current) {
+        current.required += item.quantity;
+        return;
+      }
+      requiredByProduct.set(item.matchedProduct.id, {
+        name: item.matchedProduct.name,
+        stock: item.matchedProduct.stock,
+        required: item.quantity,
+      });
+    });
+
+    const shortages = Array.from(requiredByProduct.values()).filter((item) => item.required > item.stock);
+    if (shortages.length > 0) {
+      const preview = shortages.slice(0, 3).map((item) => `${item.name}（库存 ${item.stock} / 录入 ${item.required}）`).join('、');
+      const confirmed = window.confirm(`以下商品会形成负库存：${preview}${shortages.length > 3 ? ' 等' : ''}。确认继续批量录入吗？`);
+      if (!confirmed) return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const lastOrder = entryRecords.length ? entryRecords[entryRecords.length - 1].inputOrder : 0;
+      const newRecords: PosEntryRecord[] = [];
+
+      for (let index = 0; index < batchDrafts.length; index += 1) {
+        const draft = batchDrafts[index];
+        if (!draft.matchedProduct) {
+          throw new Error(`第 ${draft.lineIndex + 1} 行未匹配到商品`);
+        }
+
+        const salePrice = Number(draft.unitPriceText);
+        const overrideTotal = Number((salePrice * draft.quantity).toFixed(2));
+        const success = await addSale(
+          draft.matchedProduct.id,
+          draft.quantity,
+          salespersonName,
+          saleDate || undefined,
+          overrideTotal
+        );
+
+        if (!success) {
+          throw new Error(`第 ${draft.lineIndex + 1} 行提交失败`);
+        }
+
+        newRecords.push({
+          id: `${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`,
+          inputOrder: lastOrder + index + 1,
+          createdAt: new Date().toISOString(),
+          productName: draft.matchedProduct.name,
+          quantity: draft.quantity,
+          saleUnitPrice: salePrice,
+          totalAmount: overrideTotal,
+          salesperson: salespersonName,
+          saleDate: saleDate || undefined,
+          isNewProduct: false,
+          abnormalPriceNote: draft.needsAbnormalNote ? batchAbnormalPriceNote.trim() : undefined,
+        });
+      }
+
+      await appendEntryRecords(newRecords);
+      setFeedback({
+        type: 'success',
+        text: `已批量录入 ${newRecords.length} 条商品，总金额 ￥${newRecords.reduce((sum, item) => sum + item.totalAmount, 0).toFixed(2)}。`,
+      });
+      resetBatchForm();
+    } catch (error) {
+      console.error('Batch checkout error:', error);
+      setFeedback({ type: 'error', text: error instanceof Error ? error.message : '批量录入失败，请重试。' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmitForm = (event: React.FormEvent) => {
+    if (entryMode === 'batch') {
+      event.preventDefault();
+      return;
+    }
+    void handleCheckout(event);
   };
 
   return (
@@ -387,7 +740,7 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
                   收银终端
                 </h2>
                 <p className="mt-2 text-sm text-slate-600">
-                  输入商品名或型号即可自动匹配，不需要精确选择；匹配不到时会直接按新商品流程录入。
+                  现在支持手动批量输入清单并逐行自动匹配；单条录入保留在下方，适合少量补录。
                 </p>
               </div>
             </div>
@@ -409,7 +762,7 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
           </div>
         </div>
 
-        <form onSubmit={handleCheckout} className="p-5 sm:p-6 space-y-6">
+        <form onSubmit={handleSubmitForm} className="p-5 sm:p-6 space-y-6">
           <fieldset disabled={!canEdit} className="contents disabled:opacity-60">
             <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_0.95fr] gap-6">
               <div className="space-y-6">
@@ -444,6 +797,33 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
                   </div>
                 </div>
 
+                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setEntryMode('batch')}
+                    className={`rounded-2xl px-4 py-2 text-sm font-bold transition-all ${
+                      entryMode === 'batch'
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    批量录入
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEntryMode('single')}
+                    className={`rounded-2xl px-4 py-2 text-sm font-bold transition-all ${
+                      entryMode === 'single'
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    单条录入
+                  </button>
+                </div>
+
+                {entryMode === 'single' && (
+                <>
                 <div className={`rounded-3xl border p-4 sm:p-5 transition-all ${
                   matchedProduct
                     ? 'border-emerald-200 bg-emerald-50/60'
@@ -615,8 +995,11 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
                     </div>
                   </div>
                 )}
+                </>
+                )}
               </div>
 
+              {entryMode === 'single' && (
               <div className="space-y-4">
                 <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm space-y-5">
                   <div>
@@ -746,6 +1129,226 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
                   </div>
                 )}
               </div>
+              )}
+
+              {entryMode === 'batch' && (
+                <>
+                  <div className="space-y-4">
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-black text-slate-900">批量商品清单</h3>
+                          <p className="mt-1 text-sm text-slate-500">
+                            一行一个商品，全部手动输入即可。推荐格式：`商品名, 数量` 或 `商品名, 数量, 单价`
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={resetBatchForm}
+                          className="ui-btn-muted !px-3 !py-2 !rounded-xl text-xs"
+                        >
+                          清空清单
+                        </button>
+                      </div>
+
+                      <textarea
+                        value={batchInput}
+                        onChange={(e) => setBatchInput(e.target.value)}
+                        rows={8}
+                        className="ui-input mt-4 !min-h-[220px] !bg-white !text-sm leading-6"
+                        placeholder={`A4纸, 2\n佳能墨盒, 1, 85\n蓝牙鼠标 x3`}
+                      />
+
+                      <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-3">
+                        <div className="rounded-2xl bg-white px-3 py-2 border border-slate-100">自动匹配现有商品</div>
+                        <div className="rounded-2xl bg-white px-3 py-2 border border-slate-100">支持行内改数量、改单价</div>
+                        <div className="rounded-2xl bg-white px-3 py-2 border border-slate-100">未匹配项可点候选直接替换</div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-lg font-black text-slate-900">批量预览</h3>
+                          <p className="mt-1 text-sm text-slate-500">先核对匹配结果，再一次性提交会更顺手。</p>
+                        </div>
+                        <div className="text-xs text-slate-400">{batchSummary.totalLines} 行</div>
+                      </div>
+
+                      {batchDrafts.length === 0 ? (
+                        <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-400">
+                          粘贴商品清单后，这里会自动生成匹配预览。
+                        </div>
+                      ) : (
+                        <div className="mt-4 space-y-3 max-h-[520px] overflow-y-auto pr-1">
+                          {batchDrafts.map((draft) => (
+                            <div
+                              key={draft.id}
+                              className={`rounded-2xl border p-4 ${
+                                draft.matchedProduct
+                                  ? draft.error
+                                    ? 'border-amber-200 bg-amber-50/60'
+                                    : 'border-emerald-200 bg-emerald-50/50'
+                                  : 'border-rose-200 bg-rose-50/50'
+                              }`}
+                            >
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">第 {draft.lineIndex + 1} 行</div>
+                                  <div className="mt-1 text-base font-black text-slate-900">{draft.matchedProduct?.name || draft.keyword}</div>
+                                  <div className="mt-1 text-xs text-slate-500">{draft.rawLine}</div>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className={`rounded-full px-2.5 py-1 font-bold ${
+                                    draft.matchedProduct ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                                  }`}>
+                                    {draft.matchedProduct ? `匹配 ${Math.round(draft.score * 100)}%` : '未匹配'}
+                                  </span>
+                                  {draft.needsAbnormalNote && (
+                                    <span className="rounded-full bg-amber-100 px-2.5 py-1 font-bold text-amber-700">
+                                      价格偏差
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_130px_160px]">
+                                <div className="rounded-2xl bg-white/80 px-3 py-3 border border-white/60">
+                                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">商品状态</div>
+                                  <div className="mt-1 text-sm text-slate-700">
+                                    {draft.matchedProduct
+                                      ? `库存 ${draft.matchedProduct.stock} · 参考价 ￥${formatMoney(draft.referencePrice)}`
+                                      : '请点下方候选，或把这一行商品名改得更接近库存名称'}
+                                  </div>
+                                  {!!draft.error && (
+                                    <div className="mt-2 text-xs font-semibold text-rose-600">{draft.error}</div>
+                                  )}
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-xs font-semibold text-slate-500">数量</label>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAdjustBatchQuantity(draft, -1)}
+                                      className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                    >
+                                      -
+                                    </button>
+                                    <div className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-black text-slate-900">
+                                      {draft.quantity}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAdjustBatchQuantity(draft, 1)}
+                                      className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <label className="mb-1 block text-xs font-semibold text-slate-500">单价</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={draft.unitPriceText}
+                                    onChange={(e) => handleBatchPriceChange(draft, e.target.value)}
+                                    onBlur={(e) => handleBatchPriceChange(draft, formatMoneyInput(e.target.value))}
+                                    className="ui-input !bg-white !h-10"
+                                    placeholder="自动带入"
+                                  />
+                                </div>
+                              </div>
+
+                              {draft.suggestions.length > 0 && !draft.matchedProduct && (
+                                <div className="mt-3">
+                                  <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">接近候选</div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {draft.suggestions.map((item) => (
+                                      <button
+                                        key={`${draft.id}-${item.id}`}
+                                        type="button"
+                                        onClick={() => handleApplyBatchSuggestion(draft, item)}
+                                        className="rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                                      >
+                                        改用 {item.name} · {Math.round(item.score * 100)}%
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-black text-slate-900">批量结算摘要</h3>
+                        <Package className="w-5 h-5 text-emerald-500" />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                          <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">总行数</div>
+                          <div className="mt-1 text-2xl font-black text-slate-900">{batchSummary.totalLines}</div>
+                        </div>
+                        <div className="rounded-2xl bg-emerald-50 px-4 py-3">
+                          <div className="text-[11px] uppercase tracking-wider text-emerald-600/70 font-bold">已匹配</div>
+                          <div className="mt-1 text-2xl font-black text-emerald-700">{batchSummary.matchedCount}</div>
+                        </div>
+                        <div className="rounded-2xl bg-rose-50 px-4 py-3">
+                          <div className="text-[11px] uppercase tracking-wider text-rose-600/70 font-bold">未完成</div>
+                          <div className="mt-1 text-2xl font-black text-rose-700">{batchSummary.invalidCount}</div>
+                        </div>
+                        <div className="rounded-2xl bg-slate-900 px-4 py-3">
+                          <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">总金额</div>
+                          <div className="mt-1 text-2xl font-black text-white">￥{batchSummary.totalAmount.toFixed(2)}</div>
+                        </div>
+                      </div>
+
+                      {batchSummary.hasAbnormalPrice && (
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 space-y-2">
+                          <div className="flex items-start gap-2 text-amber-700">
+                            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                            <div className="text-sm">
+                              批量清单里有售价与参考价偏差较大的行，请补充统一备注。
+                            </div>
+                          </div>
+                          <textarea
+                            value={batchAbnormalPriceNote}
+                            onChange={(e) => setBatchAbnormalPriceNote(e.target.value)}
+                            rows={3}
+                            placeholder="例如：团购价、活动价、一次性清货等"
+                            className="ui-input !bg-white !text-sm"
+                          />
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleBatchCheckout}
+                        disabled={isSubmitting || batchSummary.totalLines === 0}
+                        className={`ui-btn w-full py-4 text-lg shadow-sm ${
+                          isSubmitting ? 'bg-slate-200 text-slate-400' : 'ui-btn-primary'
+                        }`}
+                      >
+                        {isSubmitting ? '处理中...' : (
+                          <>
+                            <CheckCircle2 className="w-5 h-5" />
+                            批量录入 {batchSummary.matchedCount} 条
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </fieldset>
         </form>
@@ -759,7 +1362,7 @@ export function POS({ store, canEdit = false }: { store: ReturnType<typeof useSt
           </div>
           <button
             disabled={!canEdit}
-            onClick={() => persistEntryRecords([])}
+            onClick={() => void clearEntryRecords()}
             className="ui-btn-muted !px-3 !py-1.5 !text-xs !rounded-lg"
           >
             清空

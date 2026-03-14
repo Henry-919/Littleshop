@@ -738,7 +738,7 @@ export function useStore(storeId?: string) {
       }
       successCount++;
     }
-    appendInboundLogs(inboundLogs);
+    await appendInboundLogs(inboundLogs);
     await fetchData(); // 批量处理完刷新一次
     return successCount;
   };

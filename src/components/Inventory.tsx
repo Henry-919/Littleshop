@@ -341,7 +341,7 @@ export function Inventory({ store, storeId, canEdit = false }: { store: ReturnTy
       : []
     ).filter((item: any) => Number.isFinite(item.qty) && item.qty > 0);
 
-    const localInboundItems = getInboundLogsByStore(storeId).map((item) => ({
+    const localInboundItems = (await getInboundLogsByStore(storeId)).map((item) => ({
       id: item.id,
       time: item.time,
       source: item.source,
@@ -692,7 +692,7 @@ export function Inventory({ store, storeId, canEdit = false }: { store: ReturnTy
 
       const ok = await updateProduct(existingProduct.id, updates);
       if (ok) {
-        appendInboundLogs([
+        await appendInboundLogs([
           {
             storeId,
             source: 'manual_add',
@@ -716,11 +716,11 @@ export function Inventory({ store, storeId, canEdit = false }: { store: ReturnTy
     });
 
     if (!error) {
-      appendInboundLogs([
-        {
-          storeId,
-          source: 'manual_add',
-          productName: name,
+        await appendInboundLogs([
+          {
+            storeId,
+            source: 'manual_add',
+            productName: name,
           qty: stock,
           note: '库存中心新增商品'
         }
@@ -1781,7 +1781,7 @@ export function Inventory({ store, storeId, canEdit = false }: { store: ReturnTy
             </button>
             <div className="p-2 sm:p-3 md:p-8 overflow-y-auto custom-scrollbar">
               <Suspense fallback={<div className="ui-card p-6 text-sm text-slate-500">扫描模块加载中...</div>}>
-                <ReceiptScanner store={store} />
+                  <ReceiptScanner store={store} storeId={storeId} />
               </Suspense>
             </div>
           </div>

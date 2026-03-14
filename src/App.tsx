@@ -104,7 +104,7 @@ function App() {
       case 'dashboard':
         return <Dashboard store={store} storeId={storeId} canEdit={canEdit} />;
       case 'pos':
-        return <POS store={store} canEdit={canEdit} />;
+        return <POS store={store} storeId={storeId} canEdit={canEdit} />;
       case 'inventory':
         return <Inventory store={store} storeId={storeId} canEdit={canEdit} />;
       case 'returns':

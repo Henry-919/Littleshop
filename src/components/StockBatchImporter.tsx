@@ -1,9 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { FileSpreadsheet, Loader2, X, AlertTriangle, CheckCircle2, ImageUp, History } from 'lucide-react';
 import heic2any from 'heic2any';
 import { formatZhDateTime } from '../lib/date';
 import { appendInboundLogs } from '../lib/inboundLog';
+import { appendStoreActivity, clearStoreActivity, listStoreActivity } from '../lib/storeActivity';
 
 interface StockBatchImporterProps {
   store?: any;
@@ -69,8 +70,35 @@ type StockHistoryItem = {
   matchedProductName: string;
 };
 
-const STOCK_HISTORY_KEY = 'littleshop_stock_batch_history_v1';
 const MAX_HISTORY_COUNT = 500;
+
+const normalizeHistoryItem = (
+  payload: any,
+  fallback: { id: string; time: string }
+): StockHistoryItem | null => {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const source = payload.source === 'image' ? 'image' : payload.source === 'excel' ? 'excel' : null;
+  const mode = payload.mode === 'manual' ? 'manual' : payload.mode === 'auto' ? 'auto' : null;
+  const model = String(payload.model || '').trim();
+  const matchedProductName = String(payload.matchedProductName || '').trim();
+  const qty = Number(payload.qty || 0);
+  const time = String(payload.time || fallback.time || '').trim();
+
+  if (!source || !mode || !model || !matchedProductName || !Number.isFinite(qty) || qty <= 0 || !time) {
+    return null;
+  }
+
+  return {
+    id: String(payload.id || fallback.id),
+    time,
+    source,
+    mode,
+    model,
+    qty,
+    matchedProductName,
+  };
+};
 
 const MODEL_KEYS = ['型号', '商品型号', '商品名称', '名称', 'model', 'Model'];
 const QTY_KEYS = ['数量', '库存数量', '补货数量', 'qty', 'Qty', 'QTY'];
@@ -294,46 +322,65 @@ export function StockBatchImporter({ store, storeId }: StockBatchImporterProps) 
   const [reviewFilter, setReviewFilter] = useState<'all' | 'selected' | 'unselected'>('all');
   const [showHistory, setShowHistory] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
-  const [historyRecords, setHistoryRecords] = useState<StockHistoryItem[]>(() => {
-    try {
-      if (typeof window === 'undefined') return [];
-      const raw = window.localStorage.getItem(STOCK_HISTORY_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
+  const [historyRecords, setHistoryRecords] = useState<StockHistoryItem[]>([]);
 
   const products = store?.products || [];
   const updateProduct = store?.updateProduct;
   const fetchData = store?.fetchData;
 
+  useEffect(() => {
+    let active = true;
+
+    const loadHistory = async () => {
+      if (!storeId) {
+        if (active) setHistoryRecords([]);
+        return;
+      }
+
+      const rows = await listStoreActivity<StockHistoryItem>(storeId, 'stock_batch_history', MAX_HISTORY_COUNT, (row) =>
+        normalizeHistoryItem(row.payload, {
+          id: row.id,
+          time: row.sort_time || row.created_at || new Date().toISOString(),
+        })
+      );
+
+      if (active) {
+        setHistoryRecords(rows);
+        setHistoryPage(1);
+      }
+    };
+
+    void loadHistory();
+
+    return () => {
+      active = false;
+    };
+  }, [storeId]);
+
   const productIndex = useMemo(() => {
     return products.map((p: any) => ({ id: p.id, name: p.name, stock: Number(p.stock) || 0 }));
   }, [products]);
 
-  const saveHistory = (records: StockHistoryItem[]) => {
-    setHistoryRecords(records);
-    try {
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(STOCK_HISTORY_KEY, JSON.stringify(records));
-      }
-    } catch {
-      // ignore localStorage write failure
-    }
-  };
-
-  const appendHistory = (items: StockHistoryItem[]) => {
+  const appendHistory = async (items: StockHistoryItem[]) => {
     if (!items.length) return;
     const next = [...items, ...historyRecords].slice(0, MAX_HISTORY_COUNT);
-    saveHistory(next);
+    setHistoryRecords(next);
+    if (!storeId) return;
+    await appendStoreActivity(
+      storeId,
+      'stock_batch_history',
+      items.map((item) => ({
+        id: item.id,
+        sortTime: item.time,
+        payload: item,
+      }))
+    );
   };
 
-  const clearHistory = () => {
-    saveHistory([]);
+  const clearHistory = async () => {
+    setHistoryRecords([]);
     setHistoryPage(1);
+    await clearStoreActivity(storeId, 'stock_batch_history');
   };
 
   const historyPageSize = 10;
@@ -493,8 +540,8 @@ export function StockBatchImporter({ store, storeId }: StockBatchImporterProps) 
           qty: item.qty,
           matchedProductName: item.bestCandidate?.productName || ''
         }));
-      appendHistory(autoHistoryItems);
-      appendInboundLogs(
+      await appendHistory(autoHistoryItems);
+      await appendInboundLogs(
         autoHistoryItems.map((item) => ({
           storeId,
           source: 'batch_restock',
@@ -795,8 +842,8 @@ export function StockBatchImporter({ store, storeId }: StockBatchImporterProps) 
       });
 
       setManualSelections(remainingSelections);
-      appendHistory(manualHistoryItems);
-      appendInboundLogs(
+      await appendHistory(manualHistoryItems);
+      await appendInboundLogs(
         manualHistoryItems.map((item) => ({
           storeId,
           source: 'batch_restock',
