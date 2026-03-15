@@ -445,9 +445,12 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
     const matchedCount = batchDrafts.filter((item) => item.matchedProduct).length;
     const unmatchedCount = batchDrafts.filter((item) => !item.matchedProduct).length;
     const invalidCount = batchDrafts.filter((item) => !!item.error).length;
+    const abnormalCount = batchDrafts.filter((item) => item.needsAbnormalNote).length;
+    const totalQuantity = batchDrafts.reduce((sum, item) => sum + (Number.isFinite(item.quantity) ? item.quantity : 0), 0);
     const totalAmount = batchDrafts.reduce((sum, item) => sum + item.totalAmount, 0);
     const hasAbnormalPrice = batchDrafts.some((item) => item.needsAbnormalNote);
-    return { totalLines, matchedCount, unmatchedCount, invalidCount, totalAmount, hasAbnormalPrice };
+    const readyCount = Math.max(0, totalLines - invalidCount);
+    return { totalLines, matchedCount, unmatchedCount, invalidCount, abnormalCount, totalQuantity, readyCount, totalAmount, hasAbnormalPrice };
   }, [batchDrafts]);
 
   const handleApplySuggestion = (suggestion: MatchSuggestion) => {
@@ -464,12 +467,21 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
     updateBatchLine(draft.lineIndex, suggestion.name, draft.quantity, draft.unitPriceText);
   };
 
+  const handleBatchKeywordChange = (draft: BatchDraft, nextKeyword: string) => {
+    updateBatchLine(draft.lineIndex, nextKeyword, draft.quantity, draft.unitPriceText);
+  };
+
   const handleAdjustBatchQuantity = (draft: BatchDraft, delta: number) => {
     updateBatchLine(draft.lineIndex, draft.keyword, Math.max(1, draft.quantity + delta), draft.unitPriceText);
   };
 
   const handleBatchPriceChange = (draft: BatchDraft, nextValue: string) => {
     updateBatchLine(draft.lineIndex, draft.keyword, draft.quantity, nextValue);
+  };
+
+  const handleApplyBatchReferencePrice = (draft: BatchDraft) => {
+    if (draft.referencePrice <= 0) return;
+    updateBatchLine(draft.lineIndex, draft.keyword, draft.quantity, formatMoneyInput(draft.referencePrice));
   };
 
   const handleAdjustQuantity = (delta: number) => {
@@ -722,7 +734,7 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
       <FeedbackToast message={feedback} onClose={() => setFeedback(null)} />
       {!canEdit && <ReadonlyNotice description="收银终端可查看当前商品信息，但只有管理员可以提交销售和自动创建新商品。" />}
 
@@ -764,62 +776,115 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
 
         <form onSubmit={handleSubmitForm} className="p-5 sm:p-6 space-y-6">
           <fieldset disabled={!canEdit} className="contents disabled:opacity-60">
-            <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_0.95fr] gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.95fr)] gap-6">
               <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
-                      <User className="w-4 h-4" />
-                      销售人员
-                    </label>
-                    <input
-                      type="text"
-                      value={salesperson}
-                      onChange={(e) => setSalesperson(e.target.value)}
-                      placeholder="输入经手人姓名"
-                      className="ui-input"
-                      required
-                    />
+                <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,1))] p-4 sm:p-5 shadow-sm">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div>
+                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                        POS Workflow
+                      </div>
+                      <h3 className="mt-3 text-lg font-black text-slate-900">
+                        {entryMode === 'batch' ? '批量录入工作台' : '单条录入工作台'}
+                      </h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {entryMode === 'batch'
+                          ? '先粘贴清单，再在预览区逐行微调商品名、数量和单价，最后一次性结算。'
+                          : '适合零散补录，左侧找商品，右侧直接核价和结算。'}
+                      </p>
+                    </div>
+
+                    <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-100 p-1 self-start">
+                      <button
+                        type="button"
+                        onClick={() => setEntryMode('batch')}
+                        className={`rounded-2xl px-4 py-2 text-sm font-bold transition-all ${
+                          entryMode === 'batch'
+                            ? 'bg-white text-slate-900 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        批量录入
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEntryMode('single')}
+                        className={`rounded-2xl px-4 py-2 text-sm font-bold transition-all ${
+                          entryMode === 'single'
+                            ? 'bg-white text-slate-900 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        单条录入
+                      </button>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
-                      <CalendarDays className="w-4 h-4" />
-                      销售日期
-                    </label>
-                    <input
-                      type="date"
-                      value={saleDate}
-                      onChange={(e) => setSaleDate(e.target.value)}
-                      className="ui-input"
-                      title="不填则默认使用当前时间"
-                    />
-                  </div>
-                </div>
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <User className="w-4 h-4" />
+                        销售人员
+                      </label>
+                      <input
+                        type="text"
+                        value={salesperson}
+                        onChange={(e) => setSalesperson(e.target.value)}
+                        placeholder="输入经手人姓名"
+                        className="ui-input !bg-white"
+                        required
+                      />
+                    </div>
 
-                <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-100 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setEntryMode('batch')}
-                    className={`rounded-2xl px-4 py-2 text-sm font-bold transition-all ${
-                      entryMode === 'batch'
-                        ? 'bg-white text-slate-900 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    批量录入
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEntryMode('single')}
-                    className={`rounded-2xl px-4 py-2 text-sm font-bold transition-all ${
-                      entryMode === 'single'
-                        ? 'bg-white text-slate-900 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    单条录入
-                  </button>
+                    <div>
+                      <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <CalendarDays className="w-4 h-4" />
+                        销售日期
+                      </label>
+                      <input
+                        type="date"
+                        value={saleDate}
+                        onChange={(e) => setSaleDate(e.target.value)}
+                        className="ui-input !bg-white"
+                        title="不填则默认使用当前时间"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">当前模式</div>
+                      <div className="mt-1 text-sm font-black text-slate-900">{entryMode === 'batch' ? '批量录入' : '单条录入'}</div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">人员状态</div>
+                      <div className={`mt-1 text-sm font-black ${salesperson.trim() ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {salesperson.trim() ? '已填写' : '待填写'}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        {entryMode === 'batch' ? '待处理行' : '商品状态'}
+                      </div>
+                      <div className="mt-1 text-sm font-black text-slate-900">
+                        {entryMode === 'batch'
+                          ? `${batchSummary.invalidCount} 行未完成`
+                          : matchedProduct
+                            ? '已自动匹配'
+                            : isNewProduct
+                              ? '新商品录入'
+                              : '等待输入'}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        {entryMode === 'batch' ? '总件数' : '结算预估'}
+                      </div>
+                      <div className="mt-1 text-sm font-black text-slate-900">
+                        {entryMode === 'batch' ? `${batchSummary.totalQuantity} 件` : `￥${subtotal.toFixed(2)}`}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {entryMode === 'single' && (
@@ -1000,7 +1065,7 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
               </div>
 
               {entryMode === 'single' && (
-              <div className="space-y-4">
+              <div className="space-y-4 xl:sticky xl:top-4 self-start">
                 <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm space-y-5">
                   <div>
                     <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -1134,39 +1199,52 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
               {entryMode === 'batch' && (
                 <>
                   <div className="space-y-4">
-                    <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
-                      <div className="flex items-start justify-between gap-4">
+                    <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.9),rgba(255,255,255,1))] p-4 sm:p-5 shadow-sm">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                           <h3 className="text-lg font-black text-slate-900">批量商品清单</h3>
                           <p className="mt-1 text-sm text-slate-500">
                             一行一个商品，全部手动输入即可。推荐格式：`商品名, 数量` 或 `商品名, 数量, 单价`
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={resetBatchForm}
-                          className="ui-btn-muted !px-3 !py-2 !rounded-xl text-xs"
-                        >
-                          清空清单
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">按 Enter 分行</span>
+                          <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">预览区可直接改商品名</span>
+                          <button
+                            type="button"
+                            onClick={resetBatchForm}
+                            className="ui-btn-muted !px-3 !py-2 !rounded-xl text-xs"
+                          >
+                            清空清单
+                          </button>
+                        </div>
                       </div>
 
                       <textarea
                         value={batchInput}
                         onChange={(e) => setBatchInput(e.target.value)}
                         rows={8}
-                        className="ui-input mt-4 !min-h-[220px] !bg-white !text-sm leading-6"
+                        className="ui-input mt-4 !min-h-[240px] !bg-white !text-sm leading-6 shadow-inner"
                         placeholder={`A4纸, 2\n佳能墨盒, 1, 85\n蓝牙鼠标 x3`}
                       />
 
-                      <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-3">
-                        <div className="rounded-2xl bg-white px-3 py-2 border border-slate-100">自动匹配现有商品</div>
-                        <div className="rounded-2xl bg-white px-3 py-2 border border-slate-100">支持行内改数量、改单价</div>
-                        <div className="rounded-2xl bg-white px-3 py-2 border border-slate-100">未匹配项可点候选直接替换</div>
+                      <div className="mt-4 grid gap-3 text-xs text-slate-500 sm:grid-cols-3">
+                        <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                          <div className="font-bold text-slate-700">格式 1</div>
+                          <div className="mt-1 font-mono text-slate-500">A4纸, 2</div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                          <div className="font-bold text-slate-700">格式 2</div>
+                          <div className="mt-1 font-mono text-slate-500">佳能墨盒, 1, 85</div>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                          <div className="font-bold text-slate-700">格式 3</div>
+                          <div className="mt-1 font-mono text-slate-500">蓝牙鼠标 x3</div>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-5">
+                    <div className="rounded-[28px] border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <h3 className="text-lg font-black text-slate-900">批量预览</h3>
@@ -1175,12 +1253,31 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
                         <div className="text-xs text-slate-400">{batchSummary.totalLines} 行</div>
                       </div>
 
+                      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                          <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">已就绪</div>
+                          <div className="mt-1 text-lg font-black text-slate-900">{batchSummary.readyCount}</div>
+                        </div>
+                        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3">
+                          <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-rose-500">待处理</div>
+                          <div className="mt-1 text-lg font-black text-rose-700">{batchSummary.invalidCount}</div>
+                        </div>
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                          <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-500">总件数</div>
+                          <div className="mt-1 text-lg font-black text-emerald-700">{batchSummary.totalQuantity}</div>
+                        </div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3">
+                          <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-500">价格偏差</div>
+                          <div className="mt-1 text-lg font-black text-amber-700">{batchSummary.abnormalCount}</div>
+                        </div>
+                      </div>
+
                       {batchDrafts.length === 0 ? (
                         <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-400">
                           粘贴商品清单后，这里会自动生成匹配预览。
                         </div>
                       ) : (
-                        <div className="mt-4 space-y-3 max-h-[520px] overflow-y-auto pr-1">
+                        <div className="mt-4 space-y-3 max-h-[60vh] overflow-y-auto pr-1">
                           {batchDrafts.map((draft) => (
                             <div
                               key={draft.id}
@@ -1196,7 +1293,7 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
                                 <div>
                                   <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">第 {draft.lineIndex + 1} 行</div>
                                   <div className="mt-1 text-base font-black text-slate-900">{draft.matchedProduct?.name || draft.keyword}</div>
-                                  <div className="mt-1 text-xs text-slate-500">{draft.rawLine}</div>
+                                  <div className="mt-1 text-xs text-slate-500">原始内容：{draft.rawLine}</div>
                                 </div>
                                 <div className="flex items-center gap-2 text-xs">
                                   <span className={`rounded-full px-2.5 py-1 font-bold ${
@@ -1212,16 +1309,25 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
                                 </div>
                               </div>
 
-                              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_130px_160px]">
-                                <div className="rounded-2xl bg-white/80 px-3 py-3 border border-white/60">
-                                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">商品状态</div>
-                                  <div className="mt-1 text-sm text-slate-700">
+                              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr_0.7fr_0.8fr]">
+                                <div className="space-y-3 rounded-2xl bg-white/80 px-3 py-3 border border-white/60">
+                                  <div>
+                                    <label className="mb-1 block text-xs font-semibold text-slate-500">商品名</label>
+                                    <input
+                                      type="text"
+                                      value={draft.keyword}
+                                      onChange={(e) => handleBatchKeywordChange(draft, e.target.value)}
+                                      className="ui-input !bg-white !h-10"
+                                      placeholder="直接改这一行商品名"
+                                    />
+                                  </div>
+                                  <div className="text-sm text-slate-700">
                                     {draft.matchedProduct
                                       ? `库存 ${draft.matchedProduct.stock} · 参考价 ￥${formatMoney(draft.referencePrice)}`
-                                      : '请点下方候选，或把这一行商品名改得更接近库存名称'}
+                                      : '可以直接改商品名，或点下方候选快速替换'}
                                   </div>
                                   {!!draft.error && (
-                                    <div className="mt-2 text-xs font-semibold text-rose-600">{draft.error}</div>
+                                    <div className="text-xs font-semibold text-rose-600">{draft.error}</div>
                                   )}
                                 </div>
 
@@ -1233,7 +1339,7 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
                                       onClick={() => handleAdjustBatchQuantity(draft, -1)}
                                       className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                                     >
-                                      -
+                                      -1
                                     </button>
                                     <div className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-sm font-black text-slate-900">
                                       {draft.quantity}
@@ -1243,8 +1349,20 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
                                       onClick={() => handleAdjustBatchQuantity(draft, 1)}
                                       className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                                     >
-                                      +
+                                      +1
                                     </button>
+                                  </div>
+                                  <div className="mt-2 flex gap-2">
+                                    {[1, 5, 10].map((step) => (
+                                      <button
+                                        key={step}
+                                        type="button"
+                                        onClick={() => handleAdjustBatchQuantity(draft, step)}
+                                        className="flex-1 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                      >
+                                        +{step}
+                                      </button>
+                                    ))}
                                   </div>
                                 </div>
 
@@ -1259,6 +1377,17 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
                                     className="ui-input !bg-white !h-10"
                                     placeholder="自动带入"
                                   />
+                                  <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                                    <span>小计 ￥{draft.totalAmount.toFixed(2)}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleApplyBatchReferencePrice(draft)}
+                                      disabled={draft.referencePrice <= 0}
+                                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 font-semibold text-slate-600 disabled:text-slate-300"
+                                    >
+                                      用参考价
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
 
@@ -1286,11 +1415,37 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm space-y-4">
+                  <div className="space-y-4 xl:sticky xl:top-4 self-start">
+                    <div className="rounded-[28px] border border-slate-200 bg-white p-4 sm:p-5 shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-black text-slate-900">批量结算摘要</h3>
+                        <div>
+                          <h3 className="text-lg font-black text-slate-900">批量结算摘要</h3>
+                          <p className="mt-1 text-sm text-slate-500">右侧固定显示关键状态，录入时不用来回滚动。</p>
+                        </div>
                         <Package className="w-5 h-5 text-emerald-500" />
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <span className="font-semibold text-slate-500">当前状态</span>
+                          <span className={`rounded-full px-3 py-1 text-xs font-bold ${
+                            batchSummary.invalidCount === 0 && batchSummary.totalLines > 0
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {batchSummary.invalidCount === 0 && batchSummary.totalLines > 0 ? '可以直接提交' : '还有内容待确认'}
+                          </span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-500">
+                          <div>
+                            <div>销售人员</div>
+                            <div className="mt-1 font-bold text-slate-900">{salesperson.trim() || '未填写'}</div>
+                          </div>
+                          <div>
+                            <div>销售日期</div>
+                            <div className="mt-1 font-bold text-slate-900">{saleDate || '按当前时间'}</div>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
@@ -1309,6 +1464,19 @@ export function POS({ store, storeId, canEdit = false }: { store: ReturnType<typ
                         <div className="rounded-2xl bg-slate-900 px-4 py-3">
                           <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">总金额</div>
                           <div className="mt-1 text-2xl font-black text-white">￥{batchSummary.totalAmount.toFixed(2)}</div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">本次预计录入</span>
+                          <span className="font-black text-slate-900">{batchSummary.totalQuantity} 件</span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-sm">
+                          <span className="text-slate-500">需人工确认</span>
+                          <span className={`font-black ${batchSummary.invalidCount > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                            {batchSummary.invalidCount} 行
+                          </span>
                         </div>
                       </div>
 

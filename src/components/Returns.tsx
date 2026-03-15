@@ -9,6 +9,7 @@ import { ReadonlyNotice } from './ReadonlyNotice';
 import {
   emitReturnsChanged,
   loadMergedReturns,
+  saveLocalReturns,
   subscribeReturnsChanged,
   type ReturnRecord
 } from '../lib/returns';
@@ -221,6 +222,7 @@ export function Returns({ store, storeId, canEdit = false }: { store: ReturnType
   const persistRecords = (nextRecords: ReturnRecord[]) => {
     setRecords(nextRecords);
     if (storeId) {
+      saveLocalReturns(storeId, nextRecords);
       emitReturnsChanged(storeId);
     }
   };
