@@ -47,6 +47,14 @@ export const supabase = new Proxy(rawClient as any, {
     if (prop === 'from') {
       return (table: string) => withWriteGuard(target.from(table));
     }
+    if (prop === 'rpc') {
+      return (fn: string, args?: Record<string, any>, options?: Record<string, any>) => {
+        if (!writeAccessEnabled) {
+          return Promise.resolve(permissionError());
+        }
+        return target.rpc(fn, args, options);
+      };
+    }
     return Reflect.get(target, prop, receiver);
   },
 });

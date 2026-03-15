@@ -95,13 +95,251 @@ export function useStore(storeId?: string) {
     return parsed.toISOString();
   };
 
+  type ProductStockSnapshot = {
+    product: Product;
+    previousStock: number;
+    nextStock: number;
+  };
+
+  const mapDbProduct = (dbProduct: any): Product => ({
+    id: dbProduct.id,
+    name: dbProduct.name,
+    price: Number(dbProduct.price) || 0,
+    stock: Number(dbProduct.stock) || 0,
+    cost_price: dbProduct.cost_price,
+    category_id: dbProduct.category_id,
+    time: dbProduct.time,
+    store_id: dbProduct.store_id,
+    deleted_at: dbProduct.deleted_at
+  });
+
+  const upsertProductState = (nextProduct: Product) => {
+    setProducts(prev => {
+      const existed = prev.some(product => product.id === nextProduct.id);
+      if (existed) {
+        return prev.map(product => product.id === nextProduct.id ? nextProduct : product);
+      }
+      return [...prev, nextProduct];
+    });
+  };
+
+  const getProductById = async (productId: string, preferFresh = false) => {
+    const localProduct = !preferFresh ? products.find(product => product.id === productId) : null;
+    if (localProduct) return localProduct;
+    if (!storeId) return null;
+
+    const { data, error } = await supabase
+      .from('products')
+      .select('id,name,price,stock,cost_price,category_id,time,store_id,deleted_at')
+      .eq('id', productId)
+      .eq('store_id', storeId)
+      .is('deleted_at', null)
+      .single();
+
+    if (error || !data) return null;
+
+    const mapped = mapDbProduct(data);
+    upsertProductState(mapped);
+    return mapped;
+  };
+
+  const updateProductStockValue = async (productId: string, nextStock: number) => {
+    if (!storeId) return { data: null, error: new Error('store_id is required') as any };
+
+    const { data, error } = await supabase
+      .from('products')
+      .update({ stock: nextStock })
+      .eq('id', productId)
+      .eq('store_id', storeId)
+      .is('deleted_at', null)
+      .select('id,name,price,stock,cost_price,category_id,time,store_id,deleted_at')
+      .single();
+
+    const mapped = data ? mapDbProduct(data) : null;
+    if (!error && mapped) {
+      upsertProductState(mapped);
+    }
+
+    return { data: mapped, error };
+  };
+
+  const rollbackStockChanges = async (snapshots: ProductStockSnapshot[]) => {
+    let rollbackFailed = false;
+
+    for (const snapshot of [...snapshots].reverse()) {
+      const { error } = await updateProductStockValue(snapshot.product.id, snapshot.previousStock);
+      if (error) {
+        rollbackFailed = true;
+      }
+    }
+
+    if (rollbackFailed) {
+      await fetchData();
+    }
+
+    return !rollbackFailed;
+  };
+
+  const applyStockChanges = async (snapshots: ProductStockSnapshot[]) => {
+    const appliedSnapshots: ProductStockSnapshot[] = [];
+
+    for (const snapshot of snapshots) {
+      const { data, error } = await updateProductStockValue(snapshot.product.id, snapshot.nextStock);
+      if (error || !data) {
+        await rollbackStockChanges(appliedSnapshots);
+        return { ok: false, appliedSnapshots };
+      }
+
+      appliedSnapshots.push({
+        product: data,
+        previousStock: snapshot.previousStock,
+        nextStock: snapshot.nextStock
+      });
+    }
+
+    return { ok: true, appliedSnapshots };
+  };
+
+  const updateSaleRecord = async (saleId: string, updates: Record<string, any>) => {
+    const { error } = await supabase.from('sales').update(updates).eq('id', saleId);
+    return !error;
+  };
+
+  const mapRpcSale = (payload: any): Sale | null => {
+    if (!payload?.id || !payload?.productId) return null;
+    return {
+      id: String(payload.id),
+      productId: String(payload.productId),
+      productName: payload.productName ? String(payload.productName) : undefined,
+      quantity: Number(payload.quantity) || 0,
+      totalAmount: Number(payload.totalAmount) || 0,
+      salesperson: String(payload.salesperson || ''),
+      date: String(payload.date || '')
+    };
+  };
+
+  const upsertProductsFromRpc = (payloads: any[]) => {
+    payloads.forEach(payload => {
+      if (!payload?.id) return;
+      upsertProductState(mapDbProduct(payload));
+    });
+  };
+
+  const isMissingSalesRpcError = (error: any) => {
+    const code = String(error?.code || '').toUpperCase();
+    const message = String(error?.message || '').toLowerCase();
+    const details = String(error?.details || '').toLowerCase();
+    return code === 'PGRST202'
+      || code === '42883'
+      || message.includes('could not find the function')
+      || (message.includes('schema cache') && message.includes('sale'))
+      || details.includes('create_sale_with_stock')
+      || details.includes('soft_delete_sale_with_stock')
+      || details.includes('update_sale_with_stock');
+  };
+
+  const runCreateSaleTransaction = async (
+    productId: string,
+    quantity: number,
+    salesperson: string,
+    saleDate: string,
+    overrideTotalAmount?: number
+  ) => {
+    if (!storeId) return { handled: true, ok: false };
+
+    const { data, error } = await supabase.rpc('create_sale_with_stock', {
+      p_store_id: storeId,
+      p_product_id: productId,
+      p_quantity: quantity,
+      p_salesperson: salesperson,
+      p_sale_date: saleDate,
+      p_total_amount: overrideTotalAmount ?? null
+    });
+
+    if (error) {
+      if (isMissingSalesRpcError(error)) {
+        return { handled: false, ok: false };
+      }
+      console.error('create_sale_with_stock failed:', error);
+      return { handled: true, ok: false };
+    }
+
+    const payload = data as any;
+    const sale = mapRpcSale(payload?.sale);
+    if (!sale) return { handled: true, ok: false };
+
+    upsertProductsFromRpc([payload?.product]);
+    setSales(prev => [sale, ...prev.filter(item => item.id !== sale.id)]);
+    return { handled: true, ok: true };
+  };
+
+  const runDeleteSaleTransaction = async (saleId: string) => {
+    if (!storeId) return { handled: true, ok: false };
+
+    const { data, error } = await supabase.rpc('soft_delete_sale_with_stock', {
+      p_store_id: storeId,
+      p_sale_id: saleId
+    });
+
+    if (error) {
+      if (isMissingSalesRpcError(error)) {
+        return { handled: false, ok: false };
+      }
+      console.error('soft_delete_sale_with_stock failed:', error);
+      return { handled: true, ok: false };
+    }
+
+    const payload = data as any;
+    if (!payload?.saleId) return { handled: true, ok: false };
+    upsertProductsFromRpc([payload?.product]);
+    setSales(prev => prev.filter(item => item.id !== saleId));
+    return { handled: true, ok: true };
+  };
+
+  const runUpdateSaleTransaction = async (
+    saleId: string,
+    productId: string,
+    quantity: number,
+    totalAmount: number,
+    salesperson: string,
+    saleDate: string
+  ) => {
+    if (!storeId) return { handled: true, ok: false };
+
+    const { data, error } = await supabase.rpc('update_sale_with_stock', {
+      p_store_id: storeId,
+      p_sale_id: saleId,
+      p_product_id: productId,
+      p_quantity: quantity,
+      p_total_amount: totalAmount,
+      p_salesperson: salesperson,
+      p_sale_date: saleDate
+    });
+
+    if (error) {
+      if (isMissingSalesRpcError(error)) {
+        return { handled: false, ok: false };
+      }
+      console.error('update_sale_with_stock failed:', error);
+      return { handled: true, ok: false };
+    }
+
+    const payload = data as any;
+    const sale = mapRpcSale(payload?.sale);
+    if (!sale) return { handled: true, ok: false };
+
+    upsertProductsFromRpc([payload?.oldProduct, payload?.newProduct]);
+    setSales(prev => prev.map(item => item.id === saleId ? sale : item));
+    return { handled: true, ok: true };
+  };
+
   const addProduct = async (product: Omit<Product, 'id'>) => {
     if (!storeId) return { data: null, error: new Error('store_id is required') as any };
     const insertPayload = {
       ...product,
       store_id: storeId,
       time: product.time || new Date().toISOString(),
-      stock: product.stock ?? 10
+      stock: product.stock ?? 0
     };
 
     const { data, error } = await supabase.from('products').insert([insertPayload]).select().single();
@@ -123,7 +361,7 @@ export function useStore(storeId?: string) {
             ...product,
             deleted_at: null,
             time: product.time || new Date().toISOString(),
-            stock: product.stock ?? 10
+            stock: product.stock ?? 0
           })
           .eq('id', duplicated.id)
           .select()
@@ -161,42 +399,35 @@ export function useStore(storeId?: string) {
   const addSale = async (productId: string, quantity: number, salesperson: string, date?: string, overrideTotalAmount?: number) => {
     if (!storeId) return false;
     if (!Number.isInteger(quantity) || quantity <= 0) return false;
+    const saleDate = normalizeSaleDate(date);
     const normalizedSalesperson = String(salesperson || '').trim() || '系统默认';
-    let product = products.find(p => p.id === productId);
-
-    if (!product) {
-      const { data: dbProduct, error: dbProductError } = await supabase
-        .from('products')
-        .select('id,name,price,stock,cost_price,category_id,time,store_id,deleted_at')
-        .eq('id', productId)
-        .eq('store_id', storeId)
-        .is('deleted_at', null)
-        .single();
-
-      if (dbProductError || !dbProduct) return false;
-
-      product = {
-        id: dbProduct.id,
-        name: dbProduct.name,
-        price: Number(dbProduct.price) || 0,
-        stock: Number(dbProduct.stock) || 0,
-        cost_price: dbProduct.cost_price,
-        category_id: dbProduct.category_id,
-        time: dbProduct.time,
-        store_id: dbProduct.store_id,
-        deleted_at: dbProduct.deleted_at
-      };
-
-      setProducts(prev => prev.some(p => p.id === productId) ? prev : [...prev, product as Product]);
+    const transactionalResult = await runCreateSaleTransaction(
+      productId,
+      quantity,
+      normalizedSalesperson,
+      saleDate,
+      overrideTotalAmount
+    );
+    if (transactionalResult.handled) {
+      return transactionalResult.ok;
     }
+    const product = await getProductById(productId, true);
+    if (!product) return false;
 
     const newStock = (Number(product.stock) || 0) - quantity;
-    const saleDate = normalizeSaleDate(date);
     // 优先使用传入的实际售价（发票识别价格），否则用商品标价
     const finalTotalAmountRaw = (overrideTotalAmount !== undefined && overrideTotalAmount > 0)
       ? overrideTotalAmount
       : (Number(product.price) || 0) * quantity;
     const finalTotalAmount = Number(finalTotalAmountRaw.toFixed(2));
+
+    const stockSnapshots: ProductStockSnapshot[] = [{
+      product,
+      previousStock: Number(product.stock) || 0,
+      nextStock: newStock
+    }];
+    const stockResult = await applyStockChanges(stockSnapshots);
+    if (!stockResult.ok) return false;
 
     const { data: saleData, error: saleError } = await supabase.from('sales').insert([{
       product_id: productId,
@@ -208,14 +439,6 @@ export function useStore(storeId?: string) {
     }]).select().single();
 
     if (!saleError && saleData) {
-      await supabase.from('products').update({ stock: newStock }).eq('id', productId);
-      setProducts(prev => {
-        const existed = prev.some(p => p.id === productId);
-        if (existed) {
-          return prev.map(p => p.id === productId ? { ...p, stock: newStock } : p);
-        }
-        return [...prev, { ...(product as Product), stock: newStock }];
-      });
       setSales(prev => [{
         id: saleData.id,
         productId: saleData.product_id,
@@ -227,6 +450,7 @@ export function useStore(storeId?: string) {
       }, ...prev]);
       return true;
     }
+    await rollbackStockChanges(stockResult.appliedSnapshots);
     return false;
   };
 
@@ -264,18 +488,34 @@ export function useStore(storeId?: string) {
   const deleteSale = async (id: string) => {
     const sale = sales.find(s => s.id === id);
     if (!sale) return false;
-
-    // 恢复库存
-    const product = products.find(p => p.id === sale.productId);
-    if (product) {
-      const newStock = product.stock + sale.quantity;
-      await supabase.from('products').update({ stock: newStock }).eq('id', product.id);
-      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, stock: newStock } : p));
+    const transactionalResult = await runDeleteSaleTransaction(id);
+    if (transactionalResult.handled) {
+      return transactionalResult.ok;
     }
 
-    const { error } = await supabase.from('sales').update({ deleted_at: new Date().toISOString() }).eq('id', id);
-    if (!error) setSales(prev => prev.filter(s => s.id !== id));
-    return !error;
+    // 恢复库存
+    const product = await getProductById(sale.productId, true);
+    if (!product) return false;
+    const deletedAt = new Date().toISOString();
+    const deleted = await updateSaleRecord(id, { deleted_at: deletedAt });
+    if (!deleted) return false;
+
+    const stockSnapshots: ProductStockSnapshot[] = [{
+      product,
+      previousStock: Number(product.stock) || 0,
+      nextStock: (Number(product.stock) || 0) + sale.quantity
+    }];
+    const stockResult = await applyStockChanges(stockSnapshots);
+    if (!stockResult.ok) {
+      const rollbackDeleted = await updateSaleRecord(id, { deleted_at: null });
+      if (!rollbackDeleted) {
+        await fetchData();
+      }
+      return false;
+    }
+
+    setSales(prev => prev.filter(s => s.id !== id));
+    return true;
   };
 
   const transferStock = async (productId: string, targetStoreId: string, quantity: number) => {
@@ -343,7 +583,7 @@ export function useStore(storeId?: string) {
 
     const { data: targetProductList } = await supabase
       .from('products')
-      .select('id,stock,name')
+      .select('id,stock,name,price,cost_price,category_id')
       .eq('store_id', targetStoreId)
       .ilike('name', sourceProduct.name)
       .is('deleted_at', null)
@@ -352,12 +592,31 @@ export function useStore(storeId?: string) {
     const targetExisting = targetProductList?.[0];
     let insertedTargetId: string | null = null;
     let targetPrevStock = 0;
+    let targetRollbackPayload: Record<string, any> | null = null;
 
     if (targetExisting) {
       targetPrevStock = Number(targetExisting.stock) || 0;
+      const targetNextUpdates: Record<string, any> = {
+        stock: targetPrevStock + transferQty
+      };
+      if ((Number(sourceProduct.cost_price) || 0) > 0) {
+        targetNextUpdates.cost_price = Number(sourceProduct.cost_price) || 0;
+      }
+      if (targetCategoryId) {
+        targetNextUpdates.category_id = targetCategoryId;
+      }
+      if ((Number(targetExisting.price) || 0) <= 0 && (Number(sourceProduct.price) || 0) > 0) {
+        targetNextUpdates.price = Number(sourceProduct.price) || 0;
+      }
+      targetRollbackPayload = {
+        stock: targetPrevStock,
+        price: Number(targetExisting.price) || 0,
+        cost_price: Number(targetExisting.cost_price) || 0,
+        category_id: targetExisting.category_id || null
+      };
       const { error: updateTargetError } = await supabase
         .from('products')
-        .update({ stock: targetPrevStock + transferQty })
+        .update(targetNextUpdates)
         .eq('id', targetExisting.id);
 
       if (updateTargetError) {
@@ -368,7 +627,7 @@ export function useStore(storeId?: string) {
         .from('products')
         .insert([{
           name: sourceProduct.name,
-          price: Number(sourceProduct.price) || Number(sourceProduct.cost_price) || 0,
+          price: Number(sourceProduct.price) || 0,
           stock: transferQty,
           cost_price: Number(sourceProduct.cost_price) || 0,
           category_id: targetCategoryId,
@@ -396,7 +655,7 @@ export function useStore(storeId?: string) {
       if (targetExisting) {
         await supabase
           .from('products')
-          .update({ stock: targetPrevStock })
+          .update(targetRollbackPayload || { stock: targetPrevStock })
           .eq('id', targetExisting.id);
       }
       if (insertedTargetId) {
@@ -532,32 +791,56 @@ export function useStore(storeId?: string) {
     const newTotalAmount = updates.totalAmount ?? oldSale.totalAmount;
     const newSalesperson = updates.salesperson ?? oldSale.salesperson;
     const newDate = updates.date !== undefined ? normalizeSaleDate(updates.date) : oldSale.date;
+    if (!Number.isInteger(newQuantity) || newQuantity <= 0) return false;
+    const transactionalResult = await runUpdateSaleTransaction(
+      saleId,
+      newProductId,
+      newQuantity,
+      newTotalAmount,
+      newSalesperson,
+      newDate
+    );
+    if (transactionalResult.handled) {
+      return transactionalResult.ok;
+    }
 
     // 1. 库存调整：还原旧商品库存，扣减新商品库存
-    const oldProduct = products.find(p => p.id === oldSale.productId);
+    const oldProduct = await getProductById(oldSale.productId, true);
     const isSameProduct = newProductId === oldSale.productId;
+    const qtyDiff = newQuantity - oldSale.quantity;
+    const stockSnapshots: ProductStockSnapshot[] = [];
+    let resolvedProductName = newProductName;
 
-    if (isSameProduct && oldProduct) {
+    if (isSameProduct) {
       // 同商品：只调整差量
-      const qtyDiff = newQuantity - oldSale.quantity;
       if (qtyDiff !== 0) {
-        const newStock = oldProduct.stock - qtyDiff;
-        await supabase.from('products').update({ stock: newStock }).eq('id', oldProduct.id);
-        setProducts(prev => prev.map(p => p.id === oldProduct.id ? { ...p, stock: newStock } : p));
+        if (!oldProduct) return false;
+        stockSnapshots.push({
+          product: oldProduct,
+          previousStock: Number(oldProduct.stock) || 0,
+          nextStock: (Number(oldProduct.stock) || 0) - qtyDiff
+        });
+      }
+      if (oldProduct?.name) {
+        resolvedProductName = oldProduct.name;
       }
     } else {
       // 换商品：还原旧、扣减新
-      if (oldProduct) {
-        const restoredStock = oldProduct.stock + oldSale.quantity;
-        await supabase.from('products').update({ stock: restoredStock }).eq('id', oldProduct.id);
-        setProducts(prev => prev.map(p => p.id === oldProduct.id ? { ...p, stock: restoredStock } : p));
-      }
-      const newProduct = products.find(p => p.id === newProductId);
-      if (newProduct) {
-        const deductedStock = newProduct.stock - newQuantity;
-        await supabase.from('products').update({ stock: deductedStock }).eq('id', newProduct.id);
-        setProducts(prev => prev.map(p => p.id === newProduct.id ? { ...p, stock: deductedStock } : p));
-      }
+      if (!oldProduct) return false;
+      const nextProduct = await getProductById(newProductId, true);
+      if (!nextProduct) return false;
+      resolvedProductName = nextProduct.name;
+
+      stockSnapshots.push({
+        product: oldProduct,
+        previousStock: Number(oldProduct.stock) || 0,
+        nextStock: (Number(oldProduct.stock) || 0) + oldSale.quantity
+      });
+      stockSnapshots.push({
+        product: nextProduct,
+        previousStock: Number(nextProduct.stock) || 0,
+        nextStock: (Number(nextProduct.stock) || 0) - newQuantity
+      });
     }
 
     // 2. 更新销售记录
@@ -568,13 +851,28 @@ export function useStore(storeId?: string) {
       salesperson: newSalesperson,
       date: newDate
     };
-    const { error } = await supabase.from('sales').update(dbUpdates).eq('id', saleId);
-    if (error) return false;
+    const updated = await updateSaleRecord(saleId, dbUpdates);
+    if (!updated) return false;
+
+    const stockResult = await applyStockChanges(stockSnapshots);
+    if (!stockResult.ok) {
+      const rollbackSale = await updateSaleRecord(saleId, {
+        product_id: oldSale.productId,
+        quantity: oldSale.quantity,
+        total_amount: oldSale.totalAmount,
+        salesperson: oldSale.salesperson,
+        date: oldSale.date
+      });
+      if (!rollbackSale) {
+        await fetchData();
+      }
+      return false;
+    }
 
     setSales(prev => prev.map(s => s.id === saleId ? {
       ...s,
       productId: newProductId,
-      productName: newProductName,
+      productName: resolvedProductName,
       quantity: newQuantity,
       totalAmount: newTotalAmount,
       salesperson: newSalesperson,
@@ -679,7 +977,7 @@ export function useStore(storeId?: string) {
           currentProducts = currentProducts.map(p => p.id === existing.id ? { ...p, stock: targetStock } : p);
         }
       } else {
-        const finalPrice = price ?? cost_price;
+        const finalPrice = price ?? 0;
         const { data, error } = await addProduct({ name, price: finalPrice, stock, cost_price, category_id });
 
         if (!error && data) {

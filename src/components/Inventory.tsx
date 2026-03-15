@@ -684,7 +684,6 @@ export function Inventory({ store, storeId, canEdit = false }: { store: ReturnTy
 
       if (hasCostPrice) {
         updates.cost_price = costPrice;
-        updates.price = costPrice;
       }
       if (category_id) {
         updates.category_id = category_id;
@@ -709,8 +708,8 @@ export function Inventory({ store, storeId, canEdit = false }: { store: ReturnTy
 
     const { error } = await addProduct({
       name,
-      price: costPrice,
-      cost_price: costPrice,
+      price: 0,
+      cost_price: hasCostPrice ? costPrice : undefined,
       stock,
       category_id
     });

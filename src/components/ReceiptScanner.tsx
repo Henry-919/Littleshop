@@ -789,7 +789,7 @@ export function ReceiptScanner({ store, storeId }: { store: any; storeId?: strin
     try {
       const result = await addProduct({
         name,
-        price: sellingPrice > 0 ? sellingPrice : costPrice,
+        price: sellingPrice > 0 ? sellingPrice : 0,
         stock,
         cost_price: costPrice,
       });
