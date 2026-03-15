@@ -205,6 +205,21 @@ export function useStore(storeId?: string) {
     return !error;
   };
 
+  const buildNewProductPayload = (product: Omit<Product, 'id'>) => {
+    const parsedPrice = Number(product.price);
+    const parsedCostPrice = Number(product.cost_price);
+    const normalizedCostPrice = Number.isFinite(parsedCostPrice) ? parsedCostPrice : 0;
+    const normalizedPrice = Number.isFinite(parsedPrice) && parsedPrice > 0
+      ? parsedPrice
+      : (normalizedCostPrice > 0 ? normalizedCostPrice : 0);
+
+    return {
+      ...product,
+      price: normalizedPrice,
+      cost_price: normalizedCostPrice
+    };
+  };
+
   const mapRpcSale = (payload: any): Sale | null => {
     if (!payload?.id || !payload?.productId) return null;
     return {
@@ -223,19 +238,6 @@ export function useStore(storeId?: string) {
       if (!payload?.id) return;
       upsertProductState(mapDbProduct(payload));
     });
-  };
-
-  const isMissingSalesRpcError = (error: any) => {
-    const code = String(error?.code || '').toUpperCase();
-    const message = String(error?.message || '').toLowerCase();
-    const details = String(error?.details || '').toLowerCase();
-    return code === 'PGRST202'
-      || code === '42883'
-      || message.includes('could not find the function')
-      || (message.includes('schema cache') && message.includes('sale'))
-      || details.includes('create_sale_with_stock')
-      || details.includes('soft_delete_sale_with_stock')
-      || details.includes('update_sale_with_stock');
   };
 
   const runCreateSaleTransaction = async (
@@ -257,16 +259,16 @@ export function useStore(storeId?: string) {
     });
 
     if (error) {
-      if (isMissingSalesRpcError(error)) {
-        return { handled: false, ok: false };
-      }
       console.error('create_sale_with_stock failed:', error);
-      return { handled: true, ok: false };
+      return { handled: false, ok: false };
     }
 
     const payload = data as any;
     const sale = mapRpcSale(payload?.sale);
-    if (!sale) return { handled: true, ok: false };
+    if (!sale) {
+      console.error('create_sale_with_stock returned invalid payload:', payload);
+      return { handled: false, ok: false };
+    }
 
     upsertProductsFromRpc([payload?.product]);
     setSales(prev => [sale, ...prev.filter(item => item.id !== sale.id)]);
@@ -282,15 +284,15 @@ export function useStore(storeId?: string) {
     });
 
     if (error) {
-      if (isMissingSalesRpcError(error)) {
-        return { handled: false, ok: false };
-      }
       console.error('soft_delete_sale_with_stock failed:', error);
-      return { handled: true, ok: false };
+      return { handled: false, ok: false };
     }
 
     const payload = data as any;
-    if (!payload?.saleId) return { handled: true, ok: false };
+    if (!payload?.saleId) {
+      console.error('soft_delete_sale_with_stock returned invalid payload:', payload);
+      return { handled: false, ok: false };
+    }
     upsertProductsFromRpc([payload?.product]);
     setSales(prev => prev.filter(item => item.id !== saleId));
     return { handled: true, ok: true };
@@ -317,16 +319,16 @@ export function useStore(storeId?: string) {
     });
 
     if (error) {
-      if (isMissingSalesRpcError(error)) {
-        return { handled: false, ok: false };
-      }
       console.error('update_sale_with_stock failed:', error);
-      return { handled: true, ok: false };
+      return { handled: false, ok: false };
     }
 
     const payload = data as any;
     const sale = mapRpcSale(payload?.sale);
-    if (!sale) return { handled: true, ok: false };
+    if (!sale) {
+      console.error('update_sale_with_stock returned invalid payload:', payload);
+      return { handled: false, ok: false };
+    }
 
     upsertProductsFromRpc([payload?.oldProduct, payload?.newProduct]);
     setSales(prev => prev.map(item => item.id === saleId ? sale : item));
@@ -335,11 +337,12 @@ export function useStore(storeId?: string) {
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
     if (!storeId) return { data: null, error: new Error('store_id is required') as any };
+    const normalizedProduct = buildNewProductPayload(product);
     const insertPayload = {
-      ...product,
+      ...normalizedProduct,
       store_id: storeId,
-      time: product.time || new Date().toISOString(),
-      stock: product.stock ?? 0
+      time: normalizedProduct.time || new Date().toISOString(),
+      stock: normalizedProduct.stock ?? 0
     };
 
     const { data, error } = await supabase.from('products').insert([insertPayload]).select().single();
@@ -358,10 +361,10 @@ export function useStore(storeId?: string) {
         const { data: restored, error: restoreError } = await supabase
           .from('products')
           .update({
-            ...product,
+            ...normalizedProduct,
             deleted_at: null,
-            time: product.time || new Date().toISOString(),
-            stock: product.stock ?? 0
+            time: normalizedProduct.time || new Date().toISOString(),
+            stock: normalizedProduct.stock ?? 0
           })
           .eq('id', duplicated.id)
           .select()

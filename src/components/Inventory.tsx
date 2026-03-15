@@ -702,6 +702,8 @@ export function Inventory({ store, storeId, canEdit = false }: { store: ReturnTy
         ]);
         setAddFormData({ name: '', cost_price: '', stock: '', category_id: '' });
         setIsAddOpen(false);
+      } else {
+        alert('商品录入失败，请稍后重试');
       }
       return;
     }
@@ -726,6 +728,8 @@ export function Inventory({ store, storeId, canEdit = false }: { store: ReturnTy
       ]);
       setAddFormData({ name: '', cost_price: '', stock: '', category_id: '' });
       setIsAddOpen(false);
+    } else {
+      alert(error.message || '商品录入失败，请稍后重试');
     }
   };
 
